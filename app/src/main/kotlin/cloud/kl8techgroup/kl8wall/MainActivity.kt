@@ -1,5 +1,6 @@
 package cloud.kl8techgroup.kl8wall
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -75,6 +76,9 @@ class MainActivity : ComponentActivity() {
 
         val app = application as KL8WallApplication
         settingsViewModel = SettingsViewModel(app.settingsRepository)
+
+        handleIntent(intent)
+
         kioskLockManager = KioskLockManager(this)
         screenController = ScreenController(this)
         hotCornerDetector = HotCornerDetector(
@@ -92,6 +96,30 @@ class MainActivity : ComponentActivity() {
                     onPageLoaded = { currentWebViewUrl = it }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent == null) return
+        val app = application as KL8WallApplication
+        val startUrl = intent.getStringExtra("start_url")
+        val haToken = intent.getStringExtra("ha_token")
+        val bypassSetup = intent.getBooleanExtra("bypass_setup", false)
+
+        if (!startUrl.isNullOrBlank()) {
+            app.settingsRepository.setStartUrl(startUrl)
+        }
+        if (haToken != null) {
+            app.settingsRepository.setHaToken(haToken)
+        }
+        if (bypassSetup || !startUrl.isNullOrBlank()) {
+            app.settingsRepository.completeFirstRun()
         }
     }
 

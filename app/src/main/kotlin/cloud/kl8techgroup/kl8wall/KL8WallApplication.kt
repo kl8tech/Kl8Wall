@@ -63,11 +63,15 @@ class KL8WallApplication : Application() {
     fun startServer() {
         if (httpServer != null) return
 
-        val ip = WifiHelper.getWifiIpAddress(this) ?: return
+        val resolvedIp = WifiHelper.getWifiIpAddress(this)
+        val ip = resolvedIp ?: if (BuildConfig.DEBUG) "127.0.0.1" else return
         val port = settingsRepository.httpPort.value
 
+        // In debug builds, bind to null (0.0.0.0) so localhost / adb forward work
+        val serverHostname = if (BuildConfig.DEBUG) null else ip
+
         httpServer = KL8WallHttpServer(
-            hostname = ip,
+            hostname = serverHostname,
             port = port,
             bearerTokenProvider = { settingsRepository.httpBearerToken.value },
             deviceControllerProvider = { deviceController },
@@ -75,13 +79,15 @@ class KL8WallApplication : Application() {
         )
         httpServer?.startDaemon()
 
-        serverScope.launch {
-            @Suppress("TooGenericExceptionCaught")
-            try {
-                mdnsAdvertiser = MdnsAdvertiser(this@KL8WallApplication)
-                mdnsAdvertiser?.start(ip, port)
-            } catch (_: Exception) {
-                // mDNS is non-critical — device is still reachable by IP
+        if (resolvedIp != null) {
+            serverScope.launch {
+                @Suppress("TooGenericExceptionCaught")
+                try {
+                    mdnsAdvertiser = MdnsAdvertiser(this@KL8WallApplication)
+                    mdnsAdvertiser?.start(resolvedIp, port)
+                } catch (_: Exception) {
+                    // mDNS is non-critical — device is still reachable by IP
+                }
             }
         }
     }

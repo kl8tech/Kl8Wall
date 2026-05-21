@@ -24,7 +24,10 @@ object WifiHelper {
         val network = cm.activeNetwork ?: return null
         val capabilities = cm.getNetworkCapabilities(network)
 
-        if (capabilities == null || !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+        if (capabilities == null ||
+            !(capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+              capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        ) {
             return null
         }
 

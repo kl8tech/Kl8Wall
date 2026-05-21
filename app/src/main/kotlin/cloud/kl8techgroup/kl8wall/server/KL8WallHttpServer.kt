@@ -26,7 +26,7 @@ import kotlinx.serialization.json.Json
  * - `POST /api/tts/stop`     — stop TTS playback
  */
 class KL8WallHttpServer(
-    hostname: String,
+    hostname: String?,
     port: Int,
     private val bearerTokenProvider: () -> String,
     private val deviceControllerProvider: () -> DeviceController?,
