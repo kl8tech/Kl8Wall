@@ -25,13 +25,8 @@ class MqttManager(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var mqttClient: MqttAsyncClient? = null
     
-    // Callbacks
     var onSnapshotTrigger: (() -> Unit)? = null
-
-    // Local cached config to track changes
     private var currentConfig: MqttConfig? = null
-    
-    // Job to monitor states and publish periodically
     private var statusPublisherJob: Job? = null
 
     data class MqttConfig(
@@ -76,30 +71,20 @@ class MqttManager(
 
     private suspend fun handleConfigChange(config: MqttConfig) {
         if (config == currentConfig) return
-        Log.i(TAG, "MQTT config changed: enabled=${config.enabled}, broker=${config.broker}, port=${config.port}, deviceName=${config.deviceName}")
+        Log.i(TAG, "MQTT config changed: enabled=${config.enabled}, broker=${config.broker}, port=${config.port}")
         currentConfig = config
-
         disconnectSync()
-
-        if (!config.enabled || config.broker.isBlank()) {
-            Log.i(TAG, "MQTT is disabled or broker is empty. Not connecting.")
-            return
-        }
-
+        if (!config.enabled || config.broker.isBlank()) return
         connectAsync(config)
     }
 
     private fun disconnectSync() {
         statusPublisherJob?.cancel()
         statusPublisherJob = null
-        
         val client = mqttClient
         if (client != null) {
             try {
-                if (client.isConnected) {
-                    Log.d(TAG, "Disconnecting from MQTT broker...")
-                    client.disconnectForcibly(1000)
-                }
+                if (client.isConnected) client.disconnectForcibly(1000)
                 client.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error while disconnecting", e)
@@ -122,48 +107,31 @@ class MqttManager(
                 connectionTimeout = 10
                 keepAliveInterval = 30
                 isAutomaticReconnect = true
-                if (config.username.isNotBlank()) {
-                    userName = config.username
-                }
-                if (config.password.isNotBlank()) {
-                    password = config.password.toCharArray()
-                }
+                if (config.username.isNotBlank()) userName = config.username
+                if (config.password.isNotBlank()) password = config.password.toCharArray()
             }
 
             client.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(reconnect: Boolean, serverURI: String?) {
-                    Log.i(TAG, "MQTT connected successfully (reconnect=$reconnect) to $serverURI")
+                    Log.i(TAG, "MQTT connected to $serverURI")
                     publishDiscovery(config.deviceName)
                     subscribeToCommands(config.deviceName)
                     startPeriodicStatusPublisher(config.deviceName)
                 }
-
-                override fun connectionLost(cause: Throwable?) {
-                    Log.w(TAG, "MQTT connection lost", cause)
-                }
-
+                override fun connectionLost(cause: Throwable?) {}
                 override fun messageArrived(topic: String, message: MqttMessage) {
                     val payload = message.payload.toString(Charsets.UTF_8)
-                    Log.d(TAG, "MQTT message arrived on topic $topic: $payload")
                     handleCommand(topic, payload, config.deviceName)
                 }
-
-                override fun deliveryComplete(token: IMqttDeliveryToken?) {
-                    // No-op
-                }
+                override fun deliveryComplete(token: IMqttDeliveryToken?) {}
             })
 
-            Log.i(TAG, "Connecting to MQTT broker at $serverUri...")
             client.connect(options, null, object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken?) {
-                    Log.i(TAG, "MQTT connect initiation onSuccess")
-                }
-
+                override fun onSuccess(asyncActionToken: IMqttToken?) {}
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    Log.e(TAG, "MQTT connection initiation failed", exception)
+                    Log.e(TAG, "MQTT connection failed", exception)
                 }
             })
-
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize MQTT client", e)
         }
@@ -178,7 +146,7 @@ class MqttManager(
             put("sw_version", "1.0.0")
         }
 
-        // 1. Screen (Light)
+        // Light
         val screenConfig = JSONObject().apply {
             put("name", "Screen")
             put("unique_id", "kl8wall_${deviceName}_screen")
@@ -187,11 +155,13 @@ class MqttManager(
             put("brightness_command_topic", "kl8wall/$deviceName/brightness/cmd")
             put("brightness_state_topic", "kl8wall/$deviceName/brightness/state")
             put("brightness_scale", 100)
+            put("supported_color_modes", JSONArray().apply { put("brightness") })
+            put("color_mode", "brightness")
             put("device", deviceJson)
         }
         publishString("homeassistant/light/kl8wall_$deviceName/screen/config", screenConfig.toString(), retain = true)
 
-        // 2. Presence (Binary Sensor)
+        // Presence
         val presenceConfig = JSONObject().apply {
             put("name", "Presence")
             put("unique_id", "kl8wall_${deviceName}_presence")
@@ -203,7 +173,7 @@ class MqttManager(
         }
         publishString("homeassistant/binary_sensor/kl8wall_$deviceName/presence/config", presenceConfig.toString(), retain = true)
 
-        // 3. Camera
+        // Camera
         val cameraConfig = JSONObject().apply {
             put("name", "Camera")
             put("unique_id", "kl8wall_${deviceName}_camera")
@@ -212,34 +182,41 @@ class MqttManager(
         }
         publishString("homeassistant/camera/kl8wall_$deviceName/camera/config", cameraConfig.toString(), retain = true)
 
-        // 4. Current URL (Sensor)
-        val urlConfig = JSONObject().apply {
-            put("name", "Current URL")
-            put("unique_id", "kl8wall_${deviceName}_url")
-            put("state_topic", "kl8wall/$deviceName/url/state")
-            put("device", deviceJson)
+        // Buttons
+        fun pubBtn(id: String, name: String, devClass: String = "") {
+            val cfg = JSONObject().apply {
+                put("name", name)
+                put("unique_id", "kl8wall_${deviceName}_$id")
+                put("command_topic", "kl8wall/$deviceName/$id/cmd")
+                if (devClass.isNotEmpty()) put("device_class", devClass)
+                put("device", deviceJson)
+            }
+            publishString("homeassistant/button/kl8wall_$deviceName/$id/config", cfg.toString(), retain = true)
         }
-        publishString("homeassistant/sensor/kl8wall_$deviceName/url/config", urlConfig.toString(), retain = true)
+        pubBtn("reload", "Reload Dashboard", "restart")
+        pubBtn("snapshot", "Trigger Photo")
+        pubBtn("settings", "Open Settings")
+        pubBtn("reboot", "Reboot App", "restart")
 
-        // 5. Reload (Button)
-        val reloadConfig = JSONObject().apply {
-            put("name", "Reload Dashboard")
-            put("unique_id", "kl8wall_${deviceName}_reload")
-            put("command_topic", "kl8wall/$deviceName/reload/cmd")
-            put("device", deviceJson)
+        // Numbers
+        fun pubNum(id: String, name: String, min: Int, max: Int, unit: String) {
+            val cfg = JSONObject().apply {
+                put("name", name)
+                put("unique_id", "kl8wall_${deviceName}_$id")
+                put("command_topic", "kl8wall/$deviceName/$id/cmd")
+                put("state_topic", "kl8wall/$deviceName/$id/state")
+                put("min", min)
+                put("max", max)
+                if (unit.isNotEmpty()) put("unit_of_measurement", unit)
+                put("device", deviceJson)
+            }
+            publishString("homeassistant/number/kl8wall_$deviceName/$id/config", cfg.toString(), retain = true)
         }
-        publishString("homeassistant/button/kl8wall_$deviceName/reload/config", reloadConfig.toString(), retain = true)
+        pubNum("screen_timeout", "Screen Timeout", 10, 3600, "s")
+        pubNum("presence_timeout", "Presence Timeout", 10, 3600, "s")
+        pubNum("tts_volume", "TTS Volume", 0, 100, "%")
 
-        // 6. Snapshot (Button)
-        val snapshotConfig = JSONObject().apply {
-            put("name", "Trigger Photo")
-            put("unique_id", "kl8wall_${deviceName}_snapshot")
-            put("command_topic", "kl8wall/$deviceName/snapshot/cmd")
-            put("device", deviceJson)
-        }
-        publishString("homeassistant/button/kl8wall_$deviceName/snapshot/config", snapshotConfig.toString(), retain = true)
-
-        // 7. TTS (Text)
+        // Text (TTS)
         val ttsConfig = JSONObject().apply {
             put("name", "TTS")
             put("unique_id", "kl8wall_${deviceName}_tts")
@@ -249,16 +226,30 @@ class MqttManager(
         }
         publishString("homeassistant/text/kl8wall_$deviceName/tts/config", ttsConfig.toString(), retain = true)
 
-        // 8. Open Settings (Button)
-        val openSettingsConfig = JSONObject().apply {
-            put("name", "Open Settings")
-            put("unique_id", "kl8wall_${deviceName}_open_settings")
-            put("command_topic", "kl8wall/$deviceName/settings/cmd")
-            put("device", deviceJson)
+        // Sensors
+        fun pubSens(id: String, name: String, unit: String, devClass: String, stateClass: String) {
+            val cfg = JSONObject().apply {
+                put("name", name)
+                put("unique_id", "kl8wall_${deviceName}_$id")
+                put("state_topic", "kl8wall/$deviceName/$id/state")
+                if (unit.isNotEmpty()) put("unit_of_measurement", unit)
+                if (devClass.isNotEmpty()) put("device_class", devClass)
+                if (stateClass.isNotEmpty()) put("state_class", stateClass)
+                put("device", deviceJson)
+            }
+            publishString("homeassistant/sensor/kl8wall_$deviceName/$id/config", cfg.toString(), retain = true)
         }
-        publishString("homeassistant/button/kl8wall_$deviceName/open_settings/config", openSettingsConfig.toString(), retain = true)
-
-        Log.i(TAG, "MQTT Discovery payloads published for device $deviceName")
+        pubSens("battery_level", "Battery Level", "%", "battery", "measurement")
+        pubSens("battery_temp", "Battery Temp", "°C", "temperature", "measurement")
+        pubSens("wifi_rssi", "WiFi RSSI", "dBm", "signal_strength", "measurement")
+        pubSens("ram_usage", "RAM Usage", "%", "", "measurement")
+        pubSens("storage_free", "Storage Free", "GB", "data_size", "measurement")
+        pubSens("uptime", "Uptime", "s", "duration", "total_increasing")
+        pubSens("battery_state", "Battery State", "", "", "")
+        pubSens("wifi_ssid", "WiFi SSID", "", "", "")
+        pubSens("ip_address", "IP Address", "", "", "")
+        pubSens("app_version", "App Version", "", "", "")
+        pubSens("url", "Current URL", "", "", "")
     }
 
     private fun subscribeToCommands(deviceName: String) {
@@ -269,20 +260,16 @@ class MqttManager(
             "kl8wall/$deviceName/reload/cmd",
             "kl8wall/$deviceName/snapshot/cmd",
             "kl8wall/$deviceName/tts/cmd",
-            "kl8wall/$deviceName/settings/cmd"
+            "kl8wall/$deviceName/settings/cmd",
+            "kl8wall/$deviceName/reboot/cmd",
+            "kl8wall/$deviceName/screen_timeout/cmd",
+            "kl8wall/$deviceName/presence_timeout/cmd",
+            "kl8wall/$deviceName/tts_volume/cmd"
         )
         val qos = IntArray(topics.size) { 1 }
 
         try {
-            client.subscribe(topics, qos, null, object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken?) {
-                    Log.i(TAG, "Successfully subscribed to command topics")
-                }
-
-                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    Log.e(TAG, "Failed to subscribe to command topics", exception)
-                }
-            })
+            client.subscribe(topics, qos, null, null)
         } catch (e: Exception) {
             Log.e(TAG, "Error subscribing to command topics", e)
         }
@@ -308,22 +295,29 @@ class MqttManager(
                             publishBrightnessState(deviceName, percent)
                         }
                     }
-                    "kl8wall/$deviceName/reload/cmd" -> {
-                        deviceController.reload()
+                    "kl8wall/$deviceName/reload/cmd" -> deviceController.reload()
+                    "kl8wall/$deviceName/snapshot/cmd" -> onSnapshotTrigger?.invoke()
+                    "kl8wall/$deviceName/tts/cmd" -> deviceController.speak(payload)
+                    "kl8wall/$deviceName/settings/cmd" -> deviceController.openSettings()
+                    "kl8wall/$deviceName/reboot/cmd" -> deviceController.rebootApp()
+                    "kl8wall/$deviceName/screen_timeout/cmd", "kl8wall/$deviceName/presence_timeout/cmd" -> {
+                        val secs = payload.toIntOrNull()
+                        if (secs != null) {
+                            deviceController.setScreenTimeoutSeconds(secs)
+                            publishString("kl8wall/$deviceName/screen_timeout/state", secs.toString(), true)
+                            publishString("kl8wall/$deviceName/presence_timeout/state", secs.toString(), true)
+                        }
                     }
-                    "kl8wall/$deviceName/snapshot/cmd" -> {
-                        Log.i(TAG, "On-demand snapshot requested via MQTT")
-                        onSnapshotTrigger?.invoke()
-                    }
-                    "kl8wall/$deviceName/tts/cmd" -> {
-                        deviceController.speak(payload)
-                    }
-                    "kl8wall/$deviceName/settings/cmd" -> {
-                        deviceController.openSettings()
+                    "kl8wall/$deviceName/tts_volume/cmd" -> {
+                        val vol = payload.toIntOrNull()
+                        if (vol != null) {
+                            deviceController.setTtsVolume(vol)
+                            publishString("kl8wall/$deviceName/tts_volume/state", vol.toString(), true)
+                        }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing command on topic $topic with payload $payload", e)
+                Log.e(TAG, "Error processing command on $topic: $payload", e)
             }
         }
     }
@@ -333,7 +327,7 @@ class MqttManager(
         statusPublisherJob = scope.launch {
             while (isActive) {
                 publishDeviceStates(deviceName)
-                delay(30000) // Publish every 30 seconds
+                delay(30000)
             }
         }
     }
@@ -342,12 +336,26 @@ class MqttManager(
         withContext(Dispatchers.Main) {
             val screenOn = deviceController.isScreenOn()
             val brightness = deviceController.getBrightness()
-            val currentUrl = deviceController.getCurrentUrl()
-
+            
             withContext(Dispatchers.IO) {
                 publishScreenState(deviceName, screenOn)
                 publishBrightnessState(deviceName, brightness)
-                publishString("kl8wall/$deviceName/url/state", currentUrl, retain = false)
+                
+                publishString("kl8wall/$deviceName/url/state", deviceController.getCurrentUrl(), false)
+                publishString("kl8wall/$deviceName/battery_level/state", deviceController.getBatteryLevel().toString(), false)
+                publishString("kl8wall/$deviceName/battery_temp/state", deviceController.getBatteryTemp().toString(), false)
+                publishString("kl8wall/$deviceName/battery_state/state", deviceController.getBatteryState(), false)
+                publishString("kl8wall/$deviceName/wifi_rssi/state", deviceController.getWifiRssi().toString(), false)
+                publishString("kl8wall/$deviceName/wifi_ssid/state", deviceController.getWifiSsid(), false)
+                publishString("kl8wall/$deviceName/ram_usage/state", deviceController.getRamUsagePercent().toString(), false)
+                publishString("kl8wall/$deviceName/storage_free/state", deviceController.getStorageFreeGb().toString(), false)
+                publishString("kl8wall/$deviceName/uptime/state", deviceController.getUptimeSeconds().toString(), false)
+                publishString("kl8wall/$deviceName/ip_address/state", deviceController.getIpAddress(), false)
+                publishString("kl8wall/$deviceName/app_version/state", deviceController.getAppVersion(), false)
+                
+                publishString("kl8wall/$deviceName/screen_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
+                publishString("kl8wall/$deviceName/presence_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
+                publishString("kl8wall/$deviceName/tts_volume/state", deviceController.getTtsVolume().toString(), false)
             }
         }
     }
@@ -375,23 +383,14 @@ class MqttManager(
     }
 
     private fun publishBytes(topic: String, payload: ByteArray, retain: Boolean) {
-        val client = mqttClient
-        if (client == null || !client.isConnected) return
-
+        val client = mqttClient ?: return
+        if (!client.isConnected) return
         try {
             val mqttMessage = MqttMessage(payload).apply {
                 qos = 1
                 isRetained = retain
             }
-            client.publish(topic, mqttMessage, null, object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken?) {
-                    // Success
-                }
-
-                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    Log.e(TAG, "Failed to publish to topic $topic", exception)
-                }
-            })
+            client.publish(topic, mqttMessage, null, null)
         } catch (e: Exception) {
             Log.e(TAG, "Error publishing to topic $topic", e)
         }

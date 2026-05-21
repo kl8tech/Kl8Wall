@@ -48,6 +48,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import androidx.activity.result.contract.ActivityResultContracts
 import android.util.Log
+import android.content.Context
+import android.content.IntentFilter
+import android.os.BatteryManager
+import android.net.wifi.WifiManager
+import android.media.AudioManager
+import android.app.ActivityManager
+import android.os.StatFs
+import android.os.Environment
+import android.os.SystemClock
+import java.util.Locale
 
 /**
  * Single activity hosting the kiosk WebView and Compose settings overlay.
@@ -263,6 +273,136 @@ class MainActivity : ComponentActivity() {
 
             override fun openSettings() {
                 mainHandler.post { _settingsRequested.value = true }
+            }
+
+            override fun getBatteryLevel(): Float {
+                val intent = activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+                return if (level >= 0 && scale > 0) (level * 100f / scale) else 0f
+            }
+
+            override fun getBatteryTemp(): Float {
+                val intent = activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val temp = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                return if (temp >= 0) (temp / 10f) else 0f
+            }
+
+            override fun getBatteryState(): String {
+                val intent = activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                return when (status) {
+                    BatteryManager.BATTERY_STATUS_CHARGING -> "charging"
+                    BatteryManager.BATTERY_STATUS_DISCHARGING -> "discharging"
+                    BatteryManager.BATTERY_STATUS_FULL -> "full"
+                    BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "not_charging"
+                    else -> "unknown"
+                }
+            }
+
+            @Suppress("DEPRECATION")
+            override fun getWifiRssi(): Int {
+                val wifiManager = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                return wifiManager.connectionInfo.rssi
+            }
+
+            @Suppress("DEPRECATION")
+            override fun getWifiSsid(): String {
+                val wifiManager = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                val ssid = wifiManager.connectionInfo.ssid
+                return if (ssid != null && ssid != WifiManager.UNKNOWN_SSID) {
+                    ssid.replace("\"", "")
+                } else {
+                    "unknown"
+                }
+            }
+
+            override fun getRamUsagePercent(): Float {
+                val mi = ActivityManager.MemoryInfo()
+                val activityManager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                activityManager.getMemoryInfo(mi)
+                val total = mi.totalMem.toDouble()
+                val avail = mi.availMem.toDouble()
+                return if (total > 0) (((total - avail) / total) * 100).toFloat() else 0f
+            }
+
+            override fun getStorageFreeGb(): Float {
+                return try {
+                    val stat = StatFs(Environment.getDataDirectory().path)
+                    val bytesAvailable = stat.blockSizeLong * stat.availableBlocksLong
+                    (bytesAvailable / (1024f * 1024f * 1024f))
+                } catch (e: Exception) {
+                    0f
+                }
+            }
+
+            @Suppress("DEPRECATION")
+            override fun getIpAddress(): String {
+                val wifiManager = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                val ipInt = wifiManager.connectionInfo.ipAddress
+                return if (ipInt != 0) {
+                    String.format(
+                        Locale.US,
+                        "%d.%d.%d.%d",
+                        ipInt and 0xff,
+                        ipInt shr 8 and 0xff,
+                        ipInt shr 16 and 0xff,
+                        ipInt shr 24 and 0xff
+                    )
+                } else {
+                    "0.0.0.0"
+                }
+            }
+
+            override fun getAppVersion(): String {
+                return try {
+                    val pInfo = activity.packageManager.getPackageInfo(activity.packageName, 0)
+                    pInfo.versionName ?: "1.0.0"
+                } catch (e: Exception) {
+                    "1.0.0"
+                }
+            }
+
+            override fun getUptimeSeconds(): Long {
+                return SystemClock.elapsedRealtime() / 1000
+            }
+
+            override fun getTtsVolume(): Int {
+                val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                return if (max > 0) (current * 100 / max) else 0
+            }
+
+            override fun setTtsVolume(volume: Int) {
+                val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val target = (volume.coerceIn(0, 100) * max / 100f).toInt()
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+            }
+
+            override fun getScreenTimeoutSeconds(): Int {
+                return app.settingsRepository.presenceTimeoutSeconds.value
+            }
+
+            override fun setScreenTimeoutSeconds(seconds: Int) {
+                app.settingsRepository.setPresenceTimeoutSeconds(seconds)
+            }
+
+            override fun rebootApp() {
+                mainHandler.post {
+                    try {
+                        Log.i("MainActivity", "Relaunching KL8Wall app...")
+                        val packageManager = activity.packageManager
+                        val intent = packageManager.getLaunchIntentForPackage(activity.packageName)
+                        val componentName = intent?.component
+                        val mainIntent = Intent.makeRestartActivityTask(componentName)
+                        activity.startActivity(mainIntent)
+                        Runtime.getRuntime().exit(0)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Failed to relaunch app", e)
+                    }
+                }
             }
         }
     }

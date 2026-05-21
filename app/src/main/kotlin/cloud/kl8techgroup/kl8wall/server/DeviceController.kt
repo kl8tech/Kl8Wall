@@ -48,4 +48,51 @@ interface DeviceController {
 
     /** Show the settings sheet. */
     fun openSettings()
+
+    // --- New getters for diagnostics and settings controls ---
+
+    /** Get current battery level as a percentage (0 to 100). */
+    fun getBatteryLevel(): Float
+
+    /** Get battery temperature in degrees Celsius. */
+    fun getBatteryTemp(): Float
+
+    /** Get battery status string (e.g. "charging", "discharging", "full", "unknown"). */
+    fun getBatteryState(): String
+
+    /** Get Wi-Fi RSSI in dBm. */
+    fun getWifiRssi(): Int
+
+    /** Get Wi-Fi SSID. */
+    fun getWifiSsid(): String
+
+    /** Get system RAM usage as a percentage (0 to 100). */
+    fun getRamUsagePercent(): Float
+
+    /** Get free disk storage in GB. */
+    fun getStorageFreeGb(): Float
+
+    /** Get device local IP address. */
+    fun getIpAddress(): String
+
+    /** Get the app version name. */
+    fun getAppVersion(): String
+
+    /** Get app uptime in seconds since launch. */
+    fun getUptimeSeconds(): Long
+
+    /** Get current TTS speaker volume percentage (0 to 100). */
+    fun getTtsVolume(): Int
+
+    /** Set TTS speaker volume percentage (0 to 100). */
+    fun setTtsVolume(volume: Int)
+
+    /** Get the screen presence/off timeout in seconds. */
+    fun getScreenTimeoutSeconds(): Int
+
+    /** Set the screen presence/off timeout in seconds. */
+    fun setScreenTimeoutSeconds(seconds: Int)
+
+    /** Reboot the application (relaunch process/activity). */
+    fun rebootApp()
 }

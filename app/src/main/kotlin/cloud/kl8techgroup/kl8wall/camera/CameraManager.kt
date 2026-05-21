@@ -36,6 +36,9 @@ class CameraManager(
 
     // Callback to notify face detection/presence
     var onFaceDetected: ((Boolean) -> Unit)? = null
+    
+    // Store the latest captured photo for native ESPHome requests
+    var latestPhotoBytes: ByteArray? = null
 
     fun start() {
         Log.d(TAG, "Starting CameraManager...")
@@ -168,6 +171,7 @@ class CameraManager(
                 val outStream = ByteArrayOutputStream()
                 scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 75, outStream)
                 val compressedBytes = outStream.toByteArray()
+                latestPhotoBytes = compressedBytes
                 Log.i(TAG, "Image processed: originalSize=${bytes.size} bytes, newSize=${compressedBytes.size} bytes")
                 
                 mqttManager.publishCameraImage(compressedBytes)

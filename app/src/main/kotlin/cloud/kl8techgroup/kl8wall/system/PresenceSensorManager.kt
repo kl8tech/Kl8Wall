@@ -32,7 +32,8 @@ class PresenceSensorManager(
     private var proximitySensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)
 
     private var lastLux: Float? = null
-    private var isPresent = false
+    var isPresent = false
+        private set
     private var timeoutJob: Job? = null
     
     // Config values
@@ -121,6 +122,9 @@ class PresenceSensorManager(
         
         // Notify HA via MQTT
         mqttManager.publishPresenceState(present)
+
+        // Notify ESPHome API
+        (context as? cloud.kl8techgroup.kl8wall.KL8WallApplication)?.bluetoothProxyServer?.broadcastPresenceState(present)
 
         // Wake screen on presence, or turn off on absence
         withContext(Dispatchers.Main) {
