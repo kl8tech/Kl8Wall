@@ -97,12 +97,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        kioskLockManager.lock(this)
         screenController.acquireWakeLock()
 
         val app = application as KL8WallApplication
         app.deviceController = createDeviceController()
         if (!app.settingsRepository.isFirstRun.value) {
+            kioskLockManager.lock(this)
             app.startServer()
         }
     }
@@ -308,6 +308,8 @@ private fun KioskWebViewContainer(
                     onNavigationBlocked = onNavigationBlocked,
                     onError = onError
                 )
+
+                webChromeClient = android.webkit.WebChromeClient()
 
                 onWebViewCreated(this)
 

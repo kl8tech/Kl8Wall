@@ -56,6 +56,9 @@ class KioskWebView @JvmOverloads constructor(
     }
 
     private fun applyKioskBehavior() {
+        isFocusable = true
+        isFocusableInTouchMode = true
+
         isLongClickable = false
         setOnLongClickListener { true }
         isHapticFeedbackEnabled = false
@@ -72,6 +75,9 @@ class KioskWebView @JvmOverloads constructor(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            requestFocus()
+        }
         gestureDetector.onTouchEvent(event)
         return super.onTouchEvent(event)
     }
