@@ -101,11 +101,14 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
             SettingsDivider()
             SecuritySection(viewModel)
             SettingsDivider()
-            FutureSection()
+            MqttSection(viewModel)
+            SettingsDivider()
+            SensorsProxySection(viewModel)
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
+
 
 @Composable
 private fun ConnectionSection(viewModel: SettingsViewModel) {
@@ -442,14 +445,193 @@ private fun HaDiscoveryPicker(onInstanceSelected: (String) -> Unit) {
 }
 
 @Composable
-private fun FutureSection() {
-    SectionHeader("Coming Soon")
-    Text(
-        text = "Screen presence sensing, Bluetooth proxy, MQTT — coming in v2",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
+private fun MqttSection(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val deviceName by viewModel.deviceName.collectAsState()
+    val mqttEnabled by viewModel.mqttEnabled.collectAsState()
+    val mqttBroker by viewModel.mqttBroker.collectAsState()
+    val mqttPort by viewModel.mqttPort.collectAsState()
+    val mqttUsername by viewModel.mqttUsername.collectAsState()
+    val mqttPassword by viewModel.mqttPassword.collectAsState()
+
+    var editDeviceName by remember(deviceName) { mutableStateOf(deviceName) }
+    var editEnabled by remember(mqttEnabled) { mutableStateOf(mqttEnabled) }
+    var editBroker by remember(mqttBroker) { mutableStateOf(mqttBroker) }
+    var editPort by remember(mqttPort) { mutableStateOf(mqttPort.toString()) }
+    var editUsername by remember(mqttUsername) { mutableStateOf(mqttUsername) }
+    var editPassword by remember(mqttPassword) { mutableStateOf(mqttPassword) }
+    var showPassword by remember { mutableStateOf(false) }
+
+    SectionHeader("MQTT & Device Identity")
+
+    OutlinedTextField(
+        value = editDeviceName,
+        onValueChange = { editDeviceName = it },
+        label = { Text("Device Name") },
+        placeholder = { Text("e.g. living_room_wall") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
     )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Enable MQTT Client", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = "Publishes sensors and receives control commands",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = editEnabled, onCheckedChange = { editEnabled = it })
+    }
+
+    if (editEnabled) {
+        OutlinedTextField(
+            value = editBroker,
+            onValueChange = { editBroker = it },
+            label = { Text("MQTT Broker IP/Host") },
+            placeholder = { Text("192.168.1.5") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = editPort,
+            onValueChange = { editPort = it },
+            label = { Text("MQTT Port") },
+            placeholder = { Text("1883") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = editUsername,
+            onValueChange = { editUsername = it },
+            label = { Text("Username (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = editPassword,
+            onValueChange = { editPassword = it },
+            label = { Text("Password (optional)") },
+            singleLine = true,
+            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = { TokenVisibilityToggle(showPassword) { showPassword = !showPassword } },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    Button(
+        onClick = {
+            if (editDeviceName.isBlank()) {
+                Toast.makeText(context, "Device Name cannot be blank", Toast.LENGTH_SHORT).show()
+                return@Button
+            }
+            viewModel.setDeviceName(editDeviceName.trim())
+            viewModel.setMqttEnabled(editEnabled)
+            viewModel.setMqttBroker(editBroker.trim())
+            val port = editPort.toIntOrNull() ?: 1883
+            viewModel.setMqttPort(port)
+            viewModel.setMqttUsername(editUsername.trim())
+            viewModel.setMqttPassword(editPassword.trim())
+            Toast.makeText(context, "MQTT settings saved", Toast.LENGTH_SHORT).show()
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) { Text("Save MQTT Settings") }
 }
+
+@Composable
+private fun SensorsProxySection(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val bluetoothProxyEnabled by viewModel.bluetoothProxyEnabled.collectAsState()
+    val presenceSensorEnabled by viewModel.presenceSensorEnabled.collectAsState()
+    val presenceTimeoutSeconds by viewModel.presenceTimeoutSeconds.collectAsState()
+    val cameraIntervalMinutes by viewModel.cameraIntervalMinutes.collectAsState()
+
+    var editBleProxy by remember(bluetoothProxyEnabled) { mutableStateOf(bluetoothProxyEnabled) }
+    var editPresence by remember(presenceSensorEnabled) { mutableStateOf(presenceSensorEnabled) }
+    var editTimeout by remember(presenceTimeoutSeconds) { mutableStateOf(presenceTimeoutSeconds.toString()) }
+    var editCameraInterval by remember(cameraIntervalMinutes) { mutableStateOf(cameraIntervalMinutes.toString()) }
+
+    SectionHeader("Sensors & Proxy")
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("ESPHome Bluetooth Proxy", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = "Forward BLE advertisements to HA via port 6053",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = editBleProxy, onCheckedChange = { editBleProxy = it })
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Blended Presence Sensor", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = "Detect presence via light, proximity, and touch sensors",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = editPresence, onCheckedChange = { editPresence = it })
+    }
+
+    if (editPresence) {
+        OutlinedTextField(
+            value = editTimeout,
+            onValueChange = { editTimeout = it },
+            label = { Text("Presence Timeout (seconds)") },
+            placeholder = { Text("30") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    OutlinedTextField(
+        value = editCameraInterval,
+        onValueChange = { editCameraInterval = it },
+        label = { Text("Camera Capture Interval (minutes)") },
+        placeholder = { Text("60 (0 to disable)") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Button(
+        onClick = {
+            viewModel.setBluetoothProxyEnabled(editBleProxy)
+            viewModel.setPresenceSensorEnabled(editPresence)
+            val timeout = editTimeout.toIntOrNull() ?: 30
+            viewModel.setPresenceTimeoutSeconds(timeout)
+            val camInterval = editCameraInterval.toIntOrNull() ?: 60
+            viewModel.setCameraIntervalMinutes(camInterval)
+            Toast.makeText(context, "Sensors & Proxy settings saved", Toast.LENGTH_SHORT).show()
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) { Text("Save Sensors & Proxy") }
+}
+
 
 /**
  * First-run setup screen shown on initial launch.
@@ -458,16 +640,48 @@ private fun FutureSection() {
 @Composable
 fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
     val context = LocalContext.current
+    
+    // HA states
     var url by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     var showToken by remember { mutableStateOf(false) }
 
+    // MQTT & Identity states
+    val deviceNameDefault by viewModel.deviceName.collectAsState()
+    val mqttEnabledDefault by viewModel.mqttEnabled.collectAsState()
+    val mqttBrokerDefault by viewModel.mqttBroker.collectAsState()
+    val mqttPortDefault by viewModel.mqttPort.collectAsState()
+    val mqttUsernameDefault by viewModel.mqttUsername.collectAsState()
+    val mqttPasswordDefault by viewModel.mqttPassword.collectAsState()
+
+    var editDeviceName by remember(deviceNameDefault) { mutableStateOf(deviceNameDefault.ifBlank { "kl8wall" }) }
+    var editMqttEnabled by remember(mqttEnabledDefault) { mutableStateOf(mqttEnabledDefault) }
+    var editMqttBroker by remember(mqttBrokerDefault) { mutableStateOf(mqttBrokerDefault) }
+    var editMqttPort by remember(mqttPortDefault) { mutableStateOf(mqttPortDefault.toString()) }
+    var editMqttUsername by remember(mqttUsernameDefault) { mutableStateOf(mqttUsernameDefault) }
+    var editMqttPassword by remember(mqttPasswordDefault) { mutableStateOf(mqttPasswordDefault) }
+    var showMqttPassword by remember { mutableStateOf(false) }
+
+    // Sensors & Proxy states
+    val bluetoothProxyEnabledDefault by viewModel.bluetoothProxyEnabled.collectAsState()
+    val presenceSensorEnabledDefault by viewModel.presenceSensorEnabled.collectAsState()
+    val presenceTimeoutSecondsDefault by viewModel.presenceTimeoutSeconds.collectAsState()
+    val cameraIntervalMinutesDefault by viewModel.cameraIntervalMinutes.collectAsState()
+
+    var editBleProxy by remember(bluetoothProxyEnabledDefault) { mutableStateOf(bluetoothProxyEnabledDefault) }
+    var editPresence by remember(presenceSensorEnabledDefault) { mutableStateOf(presenceSensorEnabledDefault) }
+    var editTimeout by remember(presenceTimeoutSecondsDefault) { mutableStateOf(presenceTimeoutSecondsDefault.toString()) }
+    var editCameraInterval by remember(cameraIntervalMinutesDefault) { mutableStateOf(cameraIntervalMinutesDefault.toString()) }
+
     Column(
-        modifier = Modifier.fillMaxWidth().padding(32.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(32.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = "Welcome to KL8Wall",
             style = MaterialTheme.typography.headlineLarge,
@@ -475,11 +689,18 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
             color = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "Connect to your Home Assistant instance to get started.",
+            text = "Set up your connection, sensor, and proxy preferences.",
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
+        
         Spacer(modifier = Modifier.height(16.dp))
+        SettingsDivider()
+        
+        // 1. Home Assistant URL
+        SectionHeader("Home Assistant Connection")
+        
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
@@ -489,26 +710,182 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth()
         )
+        
         HaDiscoveryPicker(onInstanceSelected = { url = it })
+        
         OutlinedTextField(
             value = token,
             onValueChange = { token = it },
-            label = { Text("Long-Lived Access Token") },
+            label = { Text("Long-Lived Access Token (optional)") },
             placeholder = { Text("Paste token from HA profile page") },
             singleLine = true,
             visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = { TokenVisibilityToggle(showToken) { showToken = !showToken } },
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        
+        SettingsDivider()
+        
+        // 2. MQTT & Device Identity
+        SectionHeader("MQTT & Device Identity")
+        
+        OutlinedTextField(
+            value = editDeviceName,
+            onValueChange = { editDeviceName = it },
+            label = { Text("Device Name") },
+            placeholder = { Text("e.g. living_room_wall") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Enable MQTT Client", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "Publishes sensors and receives control commands",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = editMqttEnabled, onCheckedChange = { editMqttEnabled = it })
+        }
+
+        if (editMqttEnabled) {
+            OutlinedTextField(
+                value = editMqttBroker,
+                onValueChange = { editMqttBroker = it },
+                label = { Text("MQTT Broker IP/Host") },
+                placeholder = { Text("192.168.1.5") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = editMqttPort,
+                onValueChange = { editMqttPort = it },
+                label = { Text("MQTT Port") },
+                placeholder = { Text("1883") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = editMqttUsername,
+                onValueChange = { editMqttUsername = it },
+                label = { Text("Username (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = editMqttPassword,
+                onValueChange = { editMqttPassword = it },
+                label = { Text("Password (optional)") },
+                singleLine = true,
+                visualTransformation = if (showMqttPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = { TokenVisibilityToggle(showMqttPassword) { showMqttPassword = !showMqttPassword } },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        
+        SettingsDivider()
+        
+        // 3. Sensors & Proxy
+        SectionHeader("Sensors & Proxy")
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("ESPHome Bluetooth Proxy", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "Forward BLE advertisements to HA via port 6053",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = editBleProxy, onCheckedChange = { editBleProxy = it })
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Blended Presence Sensor", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "Uses light, proximity, touch, and camera face detection",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = editPresence, onCheckedChange = { editPresence = it })
+        }
+
+        if (editPresence) {
+            OutlinedTextField(
+                value = editTimeout,
+                onValueChange = { editTimeout = it },
+                label = { Text("Presence Cooldown (seconds)") },
+                placeholder = { Text("e.g. 60") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        OutlinedTextField(
+            value = editCameraInterval,
+            onValueChange = { editCameraInterval = it },
+            label = { Text("Periodic Photo Interval (minutes)") },
+            placeholder = { Text("60 (0 to disable)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
         SetupButtons(
             onConnect = {
                 if (url.isBlank()) {
                     Toast.makeText(context, "Enter your HA URL", Toast.LENGTH_SHORT).show()
                     return@SetupButtons
                 }
+                if (editDeviceName.isBlank()) {
+                    Toast.makeText(context, "Device Name cannot be blank", Toast.LENGTH_SHORT).show()
+                    return@SetupButtons
+                }
+                
+                // Save HA settings
                 viewModel.setStartUrl(url.trim())
                 if (token.isNotBlank()) viewModel.setHaToken(token.trim())
+                
+                // Save Device Identity & MQTT settings
+                viewModel.setDeviceName(editDeviceName.trim())
+                viewModel.setMqttEnabled(editMqttEnabled)
+                viewModel.setMqttBroker(editMqttBroker.trim())
+                val port = editMqttPort.toIntOrNull() ?: 1883
+                viewModel.setMqttPort(port)
+                viewModel.setMqttUsername(editMqttUsername.trim())
+                viewModel.setMqttPassword(editMqttPassword.trim())
+                
+                // Save Sensors & Proxy settings
+                viewModel.setBluetoothProxyEnabled(editBleProxy)
+                viewModel.setPresenceSensorEnabled(editPresence)
+                val timeout = editTimeout.toIntOrNull() ?: 60
+                viewModel.setPresenceTimeoutSeconds(timeout)
+                val cameraInterval = editCameraInterval.toIntOrNull() ?: 60
+                viewModel.setCameraIntervalMinutes(cameraInterval)
+                
                 viewModel.completeFirstRun()
                 onComplete()
             },
@@ -517,8 +894,10 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
                 onComplete()
             }
         )
+        
+        val hotCorner by viewModel.hotCorner.collectAsState()
         Text(
-            text = "You can update these settings later by long-pressing the bottom-right corner.",
+            text = "You can update these settings later by long-pressing the ${hotCorner.name.replace('_', ' ').lowercase()} corner.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

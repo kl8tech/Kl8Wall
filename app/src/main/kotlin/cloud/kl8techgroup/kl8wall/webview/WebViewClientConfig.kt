@@ -40,11 +40,13 @@ class WebViewClientConfig(
 
     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
+        view.evaluateJavascript(ERROR_LOGGER_JS, null)
     }
 
     override fun onPageFinished(view: WebView, url: String?) {
         super.onPageFinished(view, url)
         url?.let { onPageLoaded(it) }
+        view.evaluateJavascript(ERROR_LOGGER_JS, null)
         view.evaluateJavascript(DISABLE_SELECTION_JS, null)
         view.evaluateJavascript(DEBUG_DOM_JS, null)
         view.evaluateJavascript(DEBUG_BANNER_JS, null)
@@ -72,6 +74,53 @@ class WebViewClientConfig(
 
     companion object {
         private const val ERROR_SSL = -1
+
+        private const val ERROR_LOGGER_JS = """
+            (function() {
+                if (!window.__kl8wall_logger_installed) {
+                    window.__kl8wall_logger_installed = true;
+                    console.log('[KL8Wall-LOGGER] Installed error handlers');
+                    window.addEventListener('error', function(e) {
+                        console.log('[KL8Wall-ERROR] ' + e.message + ' at ' + e.filename + ':' + e.lineno + '\nStack: ' + (e.error ? e.error.stack : 'no stack'));
+                    });
+                    window.addEventListener('unhandledrejection', function(e) {
+                        var msg = e.reason;
+                        var stack = 'no stack';
+                        if (e.reason && typeof e.reason === 'object') {
+                            msg = e.reason.message || e.reason.description || JSON.stringify(e.reason);
+                            stack = e.reason.stack || 'no stack';
+                        }
+                        console.log('[KL8Wall-REJECTION] ' + msg + '\nStack: ' + stack);
+                    });
+                }
+
+                if (window.CustomElementRegistry && !window.__kl8wall_route_patch_installed) {
+                    window.__kl8wall_route_patch_installed = true;
+                    console.log('[KL8Wall-PATCH] Installing CustomElementRegistry prototype route property guard...');
+                    var originalDefine = window.CustomElementRegistry.prototype.define;
+                    window.CustomElementRegistry.prototype.define = function(name, constructor, options) {
+                        if (constructor && constructor.prototype) {
+                            var originalUpdated = constructor.prototype.updated;
+                            if (originalUpdated) {
+                                constructor.prototype.updated = function(changedProperties) {
+                                    if (changedProperties && changedProperties.has('route') && !this.route) {
+                                        console.log('[KL8Wall-PATCH] Guarding falsy route on <' + name + '>');
+                                        this.route = { path: '', prefix: '' };
+                                    }
+                                    try {
+                                        return originalUpdated.call(this, changedProperties);
+                                    } catch (e) {
+                                        console.error('[KL8Wall-PATCH] Error in <' + name + '>.updated:', e);
+                                        if (e.stack) console.error(e.stack);
+                                    }
+                                };
+                            }
+                        }
+                        return originalDefine.call(this, name, constructor, options);
+                    };
+                }
+            })();
+        """
 
         private const val DISABLE_SELECTION_JS = """
             (function() {

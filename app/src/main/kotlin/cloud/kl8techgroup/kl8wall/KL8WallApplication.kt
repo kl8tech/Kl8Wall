@@ -8,6 +8,10 @@ import cloud.kl8techgroup.kl8wall.server.WifiHelper
 import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
 import cloud.kl8techgroup.kl8wall.system.BrightnessController
 import cloud.kl8techgroup.kl8wall.system.TtsController
+import cloud.kl8techgroup.kl8wall.mqtt.MqttManager
+import cloud.kl8techgroup.kl8wall.camera.CameraManager
+import cloud.kl8techgroup.kl8wall.system.PresenceSensorManager
+import cloud.kl8techgroup.kl8wall.bluetooth.BluetoothProxyServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +49,15 @@ class KL8WallApplication : Application() {
     @Volatile
     var deviceController: DeviceController? = null
 
+    var mqttManager: MqttManager? = null
+        private set
+    var cameraManager: CameraManager? = null
+        private set
+    var presenceSensorManager: PresenceSensorManager? = null
+        private set
+    var bluetoothProxyServer: BluetoothProxyServer? = null
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -79,6 +92,10 @@ class KL8WallApplication : Application() {
         )
         httpServer?.startDaemon()
 
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("KL8Wall", "HTTP Server started on port $port. Bearer Token: ${settingsRepository.httpBearerToken.value}")
+        }
+
         if (resolvedIp != null) {
             serverScope.launch {
                 @Suppress("TooGenericExceptionCaught")
@@ -105,6 +122,53 @@ class KL8WallApplication : Application() {
             }
             mdnsAdvertiser = null
         }
+    }
+
+    /**
+     * Initialize and start all background managers (MQTT, Camera, Presence, BLE Proxy).
+     */
+    fun startServices(activity: androidx.activity.ComponentActivity, devController: DeviceController) {
+        if (mqttManager != null) return
+
+        val mqtt = MqttManager(this, settingsRepository, devController)
+        mqttManager = mqtt
+        mqtt.start()
+
+        val camera = CameraManager(this, activity, settingsRepository, mqtt)
+        cameraManager = camera
+        camera.start()
+
+        val presence = PresenceSensorManager(this, settingsRepository, mqtt, devController)
+        presenceSensorManager = presence
+        presence.start()
+
+        // Link camera face detection to presence trigger
+        camera.onFaceDetected = { detected ->
+            if (detected) {
+                presence.onFaceDetected()
+            }
+        }
+
+        val ble = BluetoothProxyServer(this, settingsRepository)
+        bluetoothProxyServer = ble
+        ble.start()
+    }
+
+    /**
+     * Stop all background managers.
+     */
+    fun stopServices() {
+        cameraManager?.stop()
+        cameraManager = null
+
+        presenceSensorManager?.stop()
+        presenceSensorManager = null
+
+        bluetoothProxyServer?.stop()
+        bluetoothProxyServer = null
+
+        mqttManager?.stop()
+        mqttManager = null
     }
 
     companion object {

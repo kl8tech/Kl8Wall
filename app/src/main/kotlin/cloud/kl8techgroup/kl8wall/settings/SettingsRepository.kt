@@ -23,6 +23,20 @@ class SettingsRepository(context: Context) {
 
     private val prefs: SharedPreferences = createEncryptedPrefs(context)
 
+    private val _deviceName = MutableStateFlow(
+        prefs.getString(KEY_DEVICE_NAME, "")?.takeIf { it.isNotEmpty() }
+            ?: sanitizeDeviceName(android.os.Build.MODEL)
+    )
+    private val _mqttEnabled = MutableStateFlow(prefs.getBoolean(KEY_MQTT_ENABLED, false))
+    private val _mqttBroker = MutableStateFlow(prefs.getString(KEY_MQTT_BROKER, "") ?: "")
+    private val _mqttPort = MutableStateFlow(prefs.getInt(KEY_MQTT_PORT, 1883))
+    private val _mqttUsername = MutableStateFlow(prefs.getString(KEY_MQTT_USERNAME, "") ?: "")
+    private val _mqttPassword = MutableStateFlow(prefs.getString(KEY_MQTT_PASSWORD, "") ?: "")
+    private val _bluetoothProxyEnabled = MutableStateFlow(prefs.getBoolean(KEY_BLUETOOTH_PROXY_ENABLED, false))
+    private val _presenceSensorEnabled = MutableStateFlow(prefs.getBoolean(KEY_PRESENCE_SENSOR_ENABLED, false))
+    private val _presenceTimeoutSeconds = MutableStateFlow(prefs.getInt(KEY_PRESENCE_TIMEOUT_SECONDS, 30))
+    private val _cameraIntervalMinutes = MutableStateFlow(prefs.getInt(KEY_CAMERA_INTERVAL_MINUTES, 60))
+
     private val _startUrl = MutableStateFlow(prefs.getString(KEY_START_URL, "") ?: "")
     private val _haTokenSet = MutableStateFlow(prefs.getString(KEY_HA_TOKEN, "")?.isNotEmpty() == true)
     private val _httpPort = MutableStateFlow(prefs.getInt(KEY_HTTP_PORT, DEFAULT_HTTP_PORT))
@@ -39,6 +53,36 @@ class SettingsRepository(context: Context) {
     private val _mediaPlaybackRequiresGesture = MutableStateFlow(
         prefs.getBoolean(KEY_MEDIA_GESTURE, false)
     )
+
+    /** Unique device name for MQTT topics and mDNS hostnames. */
+    val deviceName: StateFlow<String> = _deviceName.asStateFlow()
+
+    /** Whether MQTT reporting and controls are enabled. */
+    val mqttEnabled: StateFlow<Boolean> = _mqttEnabled.asStateFlow()
+
+    /** MQTT broker host/IP. */
+    val mqttBroker: StateFlow<String> = _mqttBroker.asStateFlow()
+
+    /** MQTT broker port. */
+    val mqttPort: StateFlow<Int> = _mqttPort.asStateFlow()
+
+    /** MQTT broker username. */
+    val mqttUsername: StateFlow<String> = _mqttUsername.asStateFlow()
+
+    /** MQTT broker password (encrypted at rest). */
+    val mqttPassword: StateFlow<String> = _mqttPassword.asStateFlow()
+
+    /** Whether the ESPHome Bluetooth proxy server is enabled. */
+    val bluetoothProxyEnabled: StateFlow<Boolean> = _bluetoothProxyEnabled.asStateFlow()
+
+    /** Whether presence sensing is enabled. */
+    val presenceSensorEnabled: StateFlow<Boolean> = _presenceSensorEnabled.asStateFlow()
+
+    /** Presence sensing inactivity timeout in seconds. */
+    val presenceTimeoutSeconds: StateFlow<Int> = _presenceTimeoutSeconds.asStateFlow()
+
+    /** Photo capturing interval in minutes. */
+    val cameraIntervalMinutes: StateFlow<Int> = _cameraIntervalMinutes.asStateFlow()
 
     /** Home Assistant dashboard URL. */
     val startUrl: StateFlow<String> = _startUrl.asStateFlow()
@@ -74,6 +118,60 @@ class SettingsRepository(context: Context) {
             generateAndStoreHttpBearerToken()
         }
     }
+
+    fun setDeviceName(name: String) {
+        val sanitized = sanitizeDeviceName(name)
+        prefs.edit().putString(KEY_DEVICE_NAME, sanitized).apply()
+        _deviceName.value = sanitized
+    }
+
+    fun setMqttEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MQTT_ENABLED, enabled).apply()
+        _mqttEnabled.value = enabled
+    }
+
+    fun setMqttBroker(broker: String) {
+        prefs.edit().putString(KEY_MQTT_BROKER, broker).apply()
+        _mqttBroker.value = broker
+    }
+
+    fun setMqttPort(port: Int) {
+        prefs.edit().putInt(KEY_MQTT_PORT, port).apply()
+        _mqttPort.value = port
+    }
+
+    fun setMqttUsername(username: String) {
+        prefs.edit().putString(KEY_MQTT_USERNAME, username).apply()
+        _mqttUsername.value = username
+    }
+
+    fun setMqttPassword(password: String) {
+        prefs.edit().putString(KEY_MQTT_PASSWORD, password).apply()
+        _mqttPassword.value = password
+    }
+
+    fun setBluetoothProxyEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLUETOOTH_PROXY_ENABLED, enabled).apply()
+        _bluetoothProxyEnabled.value = enabled
+    }
+
+    fun setPresenceSensorEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_PRESENCE_SENSOR_ENABLED, enabled).apply()
+        _presenceSensorEnabled.value = enabled
+    }
+
+    fun setPresenceTimeoutSeconds(seconds: Int) {
+        prefs.edit().putInt(KEY_PRESENCE_TIMEOUT_SECONDS, seconds).apply()
+        _presenceTimeoutSeconds.value = seconds
+    }
+
+    fun setCameraIntervalMinutes(minutes: Int) {
+        prefs.edit().putInt(KEY_CAMERA_INTERVAL_MINUTES, minutes).apply()
+        _cameraIntervalMinutes.value = minutes
+    }
+
+    private fun sanitizeDeviceName(model: String): String =
+        model.lowercase().replace(Regex("[^a-z0-9_]"), "_").trim('_')
 
     /** Save the Home Assistant dashboard URL and auto-seed allowed hosts from its hostname. */
     fun setStartUrl(url: String) {
@@ -176,6 +274,17 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private const val PREFS_FILE = "kl8wall_secure_prefs"
+        private const val KEY_DEVICE_NAME = "device_name"
+        private const val KEY_MQTT_ENABLED = "mqtt_enabled"
+        private const val KEY_MQTT_BROKER = "mqtt_broker"
+        private const val KEY_MQTT_PORT = "mqtt_port"
+        private const val KEY_MQTT_USERNAME = "mqtt_username"
+        private const val KEY_MQTT_PASSWORD = "mqtt_password"
+        private const val KEY_BLUETOOTH_PROXY_ENABLED = "bluetooth_proxy_enabled"
+        private const val KEY_PRESENCE_SENSOR_ENABLED = "presence_sensor_enabled"
+        private const val KEY_PRESENCE_TIMEOUT_SECONDS = "presence_timeout_seconds"
+        private const val KEY_CAMERA_INTERVAL_MINUTES = "camera_interval_minutes"
+
         private const val KEY_START_URL = "start_url"
         private const val KEY_HA_TOKEN = "ha_token"
         private const val KEY_HTTP_PORT = "http_port"

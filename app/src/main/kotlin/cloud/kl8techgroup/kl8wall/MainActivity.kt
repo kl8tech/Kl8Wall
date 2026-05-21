@@ -46,6 +46,8 @@ import cloud.kl8techgroup.kl8wall.webview.WebViewClientConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import androidx.activity.result.contract.ActivityResultContracts
+import android.util.Log
 
 /**
  * Single activity hosting the kiosk WebView and Compose settings overlay.
@@ -68,6 +70,18 @@ class MainActivity : ComponentActivity() {
     @Volatile
     private var currentWebViewUrl: String = ""
     private var kioskWebView: KioskWebView? = null
+    private var clearCacheRequested = false
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val cameraGranted = permissions[android.Manifest.permission.CAMERA] ?: false
+        Log.i("MainActivity", "Permissions callback: CAMERA granted=$cameraGranted")
+        if (cameraGranted) {
+            val app = application as? KL8WallApplication
+            app?.cameraManager?.start()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,13 +100,29 @@ class MainActivity : ComponentActivity() {
             onTriggered = { _settingsRequested.value = true }
         )
 
+        val permissions = mutableListOf(android.Manifest.permission.CAMERA)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            permissions.add(android.Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            permissions.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        requestPermissionLauncher.launch(permissions.toTypedArray())
+
         setContent {
             KL8WallTheme {
                 KL8WallScreen(
                     viewModel = settingsViewModel,
                     settingsRequested = _settingsRequested,
                     onSettingsHandled = { _settingsRequested.value = false },
-                    onWebViewAvailable = { kioskWebView = it },
+                    onWebViewAvailable = { wv ->
+                        kioskWebView = wv
+                        if (clearCacheRequested) {
+                            wv.clearCache(true)
+                            android.webkit.WebStorage.getInstance().deleteAllData()
+                            clearCacheRequested = false
+                        }
+                    },
                     onPageLoaded = { currentWebViewUrl = it }
                 )
             }
@@ -111,13 +141,48 @@ class MainActivity : ComponentActivity() {
         val startUrl = intent.getStringExtra("start_url")
         val haToken = intent.getStringExtra("ha_token")
         val bypassSetup = intent.getBooleanExtra("bypass_setup", false)
+        val clearCache = intent.getBooleanExtra("clear_cache", false)
+        val openSettings = intent.getBooleanExtra("open_settings", false)
 
+        if (clearCache) {
+            clearCacheRequested = true
+        }
+        if (openSettings) {
+            _settingsRequested.value = true
+        }
         if (!startUrl.isNullOrBlank()) {
             app.settingsRepository.setStartUrl(startUrl)
         }
         if (haToken != null) {
             app.settingsRepository.setHaToken(haToken)
         }
+        
+        val deviceName = intent.getStringExtra("device_name")
+        if (!deviceName.isNullOrBlank()) {
+            app.settingsRepository.setDeviceName(deviceName)
+        }
+        if (intent.hasExtra("mqtt_enabled")) {
+            app.settingsRepository.setMqttEnabled(intent.getBooleanExtra("mqtt_enabled", false))
+        }
+        val mqttBroker = intent.getStringExtra("mqtt_broker")
+        if (!mqttBroker.isNullOrBlank()) {
+            app.settingsRepository.setMqttBroker(mqttBroker)
+        }
+        val mqttUsername = intent.getStringExtra("mqtt_username")
+        if (mqttUsername != null) {
+            app.settingsRepository.setMqttUsername(mqttUsername)
+        }
+        val mqttPassword = intent.getStringExtra("mqtt_password")
+        if (mqttPassword != null) {
+            app.settingsRepository.setMqttPassword(mqttPassword)
+        }
+        if (intent.hasExtra("bluetooth_proxy_enabled")) {
+            app.settingsRepository.setBluetoothProxyEnabled(intent.getBooleanExtra("bluetooth_proxy_enabled", false))
+        }
+        if (intent.hasExtra("presence_sensor_enabled")) {
+            app.settingsRepository.setPresenceSensorEnabled(intent.getBooleanExtra("presence_sensor_enabled", false))
+        }
+
         if (bypassSetup || !startUrl.isNullOrBlank()) {
             app.settingsRepository.completeFirstRun()
         }
@@ -128,10 +193,12 @@ class MainActivity : ComponentActivity() {
         screenController.acquireWakeLock()
 
         val app = application as KL8WallApplication
-        app.deviceController = createDeviceController()
+        val devController = createDeviceController()
+        app.deviceController = devController
         if (!app.settingsRepository.isFirstRun.value) {
             kioskLockManager.lock(this)
             app.startServer()
+            app.startServices(this, devController)
         }
     }
 
@@ -142,12 +209,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        (application as KL8WallApplication).deviceController = null
+        val app = application as KL8WallApplication
+        app.deviceController = null
+        app.stopServices()
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         val root = window.decorView
-        hotCornerDetector.onTouchEvent(event, root.width, root.height)
+        val density = root.resources.displayMetrics.density
+        hotCornerDetector.onTouchEvent(event, root.width, root.height, density)
+        
+        val app = application as KL8WallApplication
+        app.presenceSensorManager?.onUserInteraction()
+
         return super.dispatchTouchEvent(event)
     }
 
@@ -185,6 +259,10 @@ class MainActivity : ComponentActivity() {
 
             override fun stopSpeaking() {
                 app.ttsController.stopSpeaking()
+            }
+
+            override fun openSettings() {
+                mainHandler.post { _settingsRequested.value = true }
             }
         }
     }

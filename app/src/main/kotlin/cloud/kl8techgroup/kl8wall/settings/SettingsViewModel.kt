@@ -23,6 +23,29 @@ class SettingsViewModel(
     val isPinSet: StateFlow<Boolean> = repository.isPinSet
     val isFirstRun: StateFlow<Boolean> = repository.isFirstRun
     val mediaPlaybackRequiresGesture: StateFlow<Boolean> = repository.mediaPlaybackRequiresGesture
+    
+    val deviceName: StateFlow<String> = repository.deviceName
+    val mqttEnabled: StateFlow<Boolean> = repository.mqttEnabled
+    val mqttBroker: StateFlow<String> = repository.mqttBroker
+    val mqttPort: StateFlow<Int> = repository.mqttPort
+    val mqttUsername: StateFlow<String> = repository.mqttUsername
+    val mqttPassword: StateFlow<String> = repository.mqttPassword
+    val bluetoothProxyEnabled: StateFlow<Boolean> = repository.bluetoothProxyEnabled
+    val presenceSensorEnabled: StateFlow<Boolean> = repository.presenceSensorEnabled
+    val presenceTimeoutSeconds: StateFlow<Int> = repository.presenceTimeoutSeconds
+    val cameraIntervalMinutes: StateFlow<Int> = repository.cameraIntervalMinutes
+
+    fun setDeviceName(name: String) = repository.setDeviceName(name)
+    fun setMqttEnabled(enabled: Boolean) = repository.setMqttEnabled(enabled)
+    fun setMqttBroker(broker: String) = repository.setMqttBroker(broker)
+    fun setMqttPort(port: Int) = repository.setMqttPort(port)
+    fun setMqttUsername(username: String) = repository.setMqttUsername(username)
+    fun setMqttPassword(password: String) = repository.setMqttPassword(password)
+    fun setBluetoothProxyEnabled(enabled: Boolean) = repository.setBluetoothProxyEnabled(enabled)
+    fun setPresenceSensorEnabled(enabled: Boolean) = repository.setPresenceSensorEnabled(enabled)
+    fun setPresenceTimeoutSeconds(seconds: Int) = repository.setPresenceTimeoutSeconds(seconds)
+    fun setCameraIntervalMinutes(minutes: Int) = repository.setCameraIntervalMinutes(minutes)
+
 
     fun setStartUrl(url: String) = repository.setStartUrl(url)
 

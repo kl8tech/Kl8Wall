@@ -45,4 +45,7 @@ interface DeviceController {
 
     /** Stop any in-progress TTS speech. */
     fun stopSpeaking()
+
+    /** Show the settings sheet. */
+    fun openSettings()
 }

@@ -29,10 +29,12 @@ class KioskWebView @JvmOverloads constructor(
     }
 
     @SuppressLint("SetJavaScriptEnabled")
+    @Suppress("DEPRECATION")
     private fun applyHardeningFlags() {
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            databaseEnabled = true
 
             allowFileAccess = false
             allowContentAccess = false
