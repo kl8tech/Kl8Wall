@@ -1,0 +1,110 @@
+build:
+  maxIssues: 0
+  excludeCorrectable: false
+
+complexity:
+  active: true
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 15
+  LongMethod:
+    active: true
+    threshold: 60
+    ignoreAnnotated: ['Composable']
+  LongParameterList:
+    active: true
+    functionThreshold: 6
+    constructorThreshold: 7
+    ignoreAnnotated: ['Composable']
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 25
+    thresholdInClasses: 25
+    thresholdInInterfaces: 15
+    thresholdInObjects: 10
+
+coroutines:
+  active: true
+  GlobalCoroutineUsage:
+    active: true
+  SuspendFunWithCoroutineScopeReceiver:
+    active: true
+
+empty-blocks:
+  active: true
+
+exceptions:
+  active: true
+  TooGenericExceptionCaught:
+    active: true
+    exceptionNames:
+      - ArrayIndexOutOfBoundsException
+      - Error
+      - IllegalMonitorStateException
+      - NullPointerException
+      - IndexOutOfBoundsException
+      - RuntimeException
+      - Throwable
+
+naming:
+  active: true
+  FunctionNaming:
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**']
+    ignoreAnnotated: ['Composable']
+
+performance:
+  active: true
+  SpreadOperator:
+    active: false
+
+potential-bugs:
+  active: true
+  UnsafeCast:
+    active: true
+  UnsafeCallOnNullableType:
+    active: true
+
+style:
+  active: true
+  ForbiddenComment:
+    active: true
+    comments:
+      - reason: 'Use GitHub issues instead of TODO comments'
+        value: 'TODO'
+      - reason: 'Use GitHub issues instead of FIXME comments'
+        value: 'FIXME'
+      - reason: 'Use GitHub issues instead of XXX comments'
+        value: 'XXX'
+  MagicNumber:
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**']
+    ignoreNumbers:
+      - '-1'
+      - '0'
+      - '1'
+      - '2'
+    ignoreHashCodeFunction: true
+    ignorePropertyDeclaration: true
+    ignoreLocalVariableDeclaration: false
+    ignoreConstantDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotation: true
+    ignoreNamedArgument: true
+    ignoreEnums: true
+  MaxLineLength:
+    active: true
+    maxLineLength: 120
+    excludeCommentStatements: true
+  ReturnCount:
+    active: true
+    max: 3
+    excludeGuardClauses: true
+  WildcardImport:
+    active: true
+    excludeImports:
+      - 'java.util.*'
+      - 'kotlinx.android.synthetic.*'
+  UnusedPrivateMember:
+    active: true
+    allowedNames: '(_|ignored|expected|serialVersionUID)'

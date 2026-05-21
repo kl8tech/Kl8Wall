@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- KL8 green rounded rectangle representing a wall display -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M30,36h48c2.2,0 4,1.8 4,4v28c0,2.2 -1.8,4 -4,4H30c-2.2,0 -4,-1.8 -4,-4V40c0,-2.2 1.8,-4 4,-4z" />
+    <!-- Screen area -->
+    <path
+        android:fillColor="#0F1419"
+        android:pathData="M33,40h42c1.1,0 2,0.9 2,2v22c0,1.1 -0.9,2 -2,2H33c-1.1,0 -2,-0.9 -2,-2V42c0,-1.1 0.9,-2 2,-2z" />
+    <!-- Stand -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M48,72h12v4H48z" />
+</vector>

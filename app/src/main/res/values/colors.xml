@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="kl8_green">#FF10B981</color>
+    <color name="kl8_surface">#FF0F1419</color>
+    <color name="kl8_surface_elevated">#FF1A2332</color>
+</resources>
