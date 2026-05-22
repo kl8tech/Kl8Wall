@@ -129,13 +129,6 @@ class MainActivity : ComponentActivity() {
             permissions.add(android.Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         }
-        val missingPermissions = permissions.filter {
-            androidx.core.content.ContextCompat.checkSelfPermission(this, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-        if (missingPermissions.isNotEmpty()) {
-            isRequestingPermissions = true
-            requestPermissionLauncher.launch(missingPermissions.toTypedArray())
-        }
 
         if (!Settings.System.canWrite(this)) {
             try {
@@ -235,9 +228,33 @@ class MainActivity : ComponentActivity() {
         val app = application as KL8WallApplication
         val devController = createDeviceController()
         app.deviceController = devController
-        if (!app.settingsRepository.isFirstRun.value && !isRequestingPermissions) {
-            kioskLockManager.lock(this)
+
+        val permissions = mutableListOf(
+            android.Manifest.permission.CAMERA,
+            android.Manifest.permission.RECORD_AUDIO,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            permissions.add(android.Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         }
+        val missingPermissions = permissions.filter {
+            androidx.core.content.ContextCompat.checkSelfPermission(this, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missingPermissions.isNotEmpty()) {
+            if (!isRequestingPermissions) {
+                isRequestingPermissions = true
+                requestPermissionLauncher.launch(missingPermissions.toTypedArray())
+            }
+        } else {
+            isRequestingPermissions = false
+            if (!app.settingsRepository.isFirstRun.value) {
+                kioskLockManager.lock(this)
+            }
+        }
+
         if (!app.settingsRepository.isFirstRun.value) {
             app.startServer()
             app.startServices(this, devController)
