@@ -2,5 +2,5 @@
   "version": "2.0.27",
   "versionCode": 29,
   "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.27/kl8wall-v29.apk",
-  "changelog": "Release v2.0.27 - Replaced Java 8 Base64 to fix Android 7 launch crash."
+  "changelog": "Release v2.0.27 - Please see GitHub release notes for details."
 }
