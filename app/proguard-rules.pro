@@ -29,3 +29,7 @@
 
 # Keep Argon2kt native bindings
 -keep class com.lambdapioneer.argon2kt.** { *; }
+
+# Suppress warnings for compile-only annotations from Tink / other libraries
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
