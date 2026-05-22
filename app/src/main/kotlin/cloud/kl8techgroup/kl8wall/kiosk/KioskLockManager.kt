@@ -30,23 +30,19 @@ class KioskLockManager(private val context: Context) {
     val isDeviceOwner: Boolean get() = dpm.isDeviceOwnerApp(context.packageName)
 
     /**
-     * Enable kiosk lockdown. Uses Device Owner lock task if available,
-     * otherwise falls back to screen pinning.
+     * Enable kiosk lockdown. Uses Device Owner lock task if available.
+     * Screen pinning fallback has been disabled to prevent annoying popups and crashes.
      */
     fun lock(activity: Activity) {
         if (isDeviceOwner) {
             enableDeviceOwnerLock(activity)
-        } else {
-            enableScreenPinning(activity)
         }
     }
 
     /** Disable kiosk lockdown. */
     fun unlock(activity: Activity) {
-        when (_lockState.value) {
-            LockState.DEVICE_OWNER -> disableDeviceOwnerLock(activity)
-            LockState.SCREEN_PINNED -> disableScreenPinning(activity)
-            LockState.UNLOCKED -> { }
+        if (_lockState.value == LockState.DEVICE_OWNER) {
+            disableDeviceOwnerLock(activity)
         }
     }
 
