@@ -24,6 +24,9 @@ import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.NetworkInterface
+import java.net.Inet4Address
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceInfo
@@ -118,6 +121,7 @@ class BluetoothProxyServer(
                     try {
                         val socket = serverSocket?.accept()
                         if (socket != null) {
+                            Log.i(TAG, "Accepted incoming connection from ${socket.remoteSocketAddress}")
                             val handler = ClientHandler(socket)
                             activeClients.add(handler)
                             scope.launch { handler.run() }
@@ -176,21 +180,33 @@ class BluetoothProxyServer(
         }
     }
 
-    @Suppress("DEPRECATION")
+    private fun getLocalIpAddress(): InetAddress? {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+            for (intf in Collections.list(interfaces)) {
+                if (!intf.isUp || intf.isLoopback) continue
+                val addrs = intf.inetAddresses
+                for (addr in Collections.list(addrs)) {
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        return addr
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting local IP address", e)
+        }
+        return null
+    }
+
     private fun registerMdns() {
         scope.launch {
             try {
-                val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                val ipAddressInt = wifiManager.connectionInfo.ipAddress
-                if (ipAddressInt == 0) return@launch
-                val ipAddress = InetAddress.getByAddress(
-                    byteArrayOf(
-                        (ipAddressInt and 0xff).toByte(),
-                        (ipAddressInt shr 8 and 0xff).toByte(),
-                        (ipAddressInt shr 16 and 0xff).toByte(),
-                        (ipAddressInt shr 24 and 0xff).toByte()
-                    )
-                )
+                val ipAddress = getLocalIpAddress()
+                if (ipAddress == null) {
+                    Log.w(TAG, "Cannot register mDNS: IP address is null")
+                    return@launch
+                }
+                Log.i(TAG, "Registering mDNS for ESPHome proxy on IP: $ipAddress")
                 jmdns = JmDNS.create(ipAddress, "kl8wall-ble")
                 val txtRecords = mapOf(
                     "version" to BuildConfig.VERSION_NAME,
@@ -206,6 +222,7 @@ class BluetoothProxyServer(
                     txtRecords
                 )
                 jmdns?.registerService(mdnsServiceInfo)
+                Log.i(TAG, "mDNS service registered successfully: KL8Wall-BLE-${settingsRepository.deviceName.value}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to register mDNS", e)
             }
@@ -307,12 +324,12 @@ class BluetoothProxyServer(
 
     private fun broadcastSensorState(key: Int, value: Float) {
         val resp = SensorStateResponse.newBuilder().setKey(key).setState(value).build()
-        activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(22, resp) }
+        activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(25, resp) }
     }
 
     private fun broadcastTextSensorState(key: Int, text: String) {
         val resp = TextSensorStateResponse.newBuilder().setKey(key).setState(text).build()
-        activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(23, resp) }
+        activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(27, resp) }
     }
 
     private fun broadcastNumberState(key: Int, value: Float) {
@@ -329,7 +346,7 @@ class BluetoothProxyServer(
             .setBrightness(dev.getBrightness() / 100f)
             .setColorMode(ColorMode.COLOR_MODE_BRIGHTNESS)
             .build()
-        activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(73, resp) }
+        activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(24, resp) }
     }
 
     // --- Client Handler ---
@@ -346,10 +363,17 @@ class BluetoothProxyServer(
 
         fun run() {
             try {
+                Log.i(TAG, "ClientHandler starting for ${socket.remoteSocketAddress}")
                 while (running) {
                     val zero = input.read()
-                    if (zero == -1) break
-                    if (zero != 0x00) break
+                    if (zero == -1) {
+                        Log.d(TAG, "Client closed connection: ${socket.remoteSocketAddress}")
+                        break
+                    }
+                    if (zero != 0x00) {
+                        Log.w(TAG, "Invalid frame preamble: $zero from ${socket.remoteSocketAddress}")
+                        break
+                    }
                     val length = readVarInt(input)
                     val msgId = readVarInt(input)
                     val payload = ByteArray(length)
@@ -362,12 +386,15 @@ class BluetoothProxyServer(
                     handleMessage(msgId, payload)
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Exception in ClientHandler for ${socket.remoteSocketAddress}", e)
             } finally {
+                Log.i(TAG, "ClientHandler stopped for ${socket.remoteSocketAddress}")
                 close()
             }
         }
 
         private fun handleMessage(msgId: Int, payload: ByteArray) {
+            Log.d(TAG, "Received message: msgId=$msgId, size=${payload.size} from ${socket.remoteSocketAddress}")
             when (msgId) {
                 1 -> { // HelloRequest
                     val resp = HelloResponse.newBuilder()
@@ -479,18 +506,18 @@ class BluetoothProxyServer(
                     if (dev != null) {
                         broadcastScreenState()
                         sendPacket(21, BinarySensorStateResponse.newBuilder().setKey(KEY_PRESENCE).setState(app.presenceSensorManager?.isPresent ?: false).build())
-                        sendPacket(22, SensorStateResponse.newBuilder().setKey(KEY_BATTERY_LEVEL).setState(dev.getBatteryLevel()).build())
-                        sendPacket(22, SensorStateResponse.newBuilder().setKey(KEY_BATTERY_TEMP).setState(dev.getBatteryTemp()).build())
-                        sendPacket(22, SensorStateResponse.newBuilder().setKey(KEY_WIFI_RSSI).setState(dev.getWifiRssi().toFloat()).build())
-                        sendPacket(22, SensorStateResponse.newBuilder().setKey(KEY_RAM_USAGE).setState(dev.getRamUsagePercent()).build())
-                        sendPacket(22, SensorStateResponse.newBuilder().setKey(KEY_STORAGE_FREE).setState(dev.getStorageFreeGb()).build())
-                        sendPacket(22, SensorStateResponse.newBuilder().setKey(KEY_UPTIME).setState(dev.getUptimeSeconds().toFloat()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_BATTERY_LEVEL).setState(dev.getBatteryLevel()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_BATTERY_TEMP).setState(dev.getBatteryTemp()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_WIFI_RSSI).setState(dev.getWifiRssi().toFloat()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_RAM_USAGE).setState(dev.getRamUsagePercent()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_STORAGE_FREE).setState(dev.getStorageFreeGb()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_UPTIME).setState(dev.getUptimeSeconds().toFloat()).build())
                         
-                        sendPacket(23, TextSensorStateResponse.newBuilder().setKey(KEY_BATTERY_STATE).setState(dev.getBatteryState()).build())
-                        sendPacket(23, TextSensorStateResponse.newBuilder().setKey(KEY_WIFI_SSID).setState(dev.getWifiSsid()).build())
-                        sendPacket(23, TextSensorStateResponse.newBuilder().setKey(KEY_IP_ADDRESS).setState(dev.getIpAddress()).build())
-                        sendPacket(23, TextSensorStateResponse.newBuilder().setKey(KEY_APP_VERSION).setState(dev.getAppVersion()).build())
-                        sendPacket(23, TextSensorStateResponse.newBuilder().setKey(KEY_CURRENT_URL).setState(dev.getCurrentUrl()).build())
+                        sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_BATTERY_STATE).setState(dev.getBatteryState()).build())
+                        sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_WIFI_SSID).setState(dev.getWifiSsid()).build())
+                        sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_IP_ADDRESS).setState(dev.getIpAddress()).build())
+                        sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_APP_VERSION).setState(dev.getAppVersion()).build())
+                        sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_CURRENT_URL).setState(dev.getCurrentUrl()).build())
                         
                         sendPacket(98, TextStateResponse.newBuilder().setKey(KEY_TTS).setState("").build())
                         
@@ -596,6 +623,7 @@ class BluetoothProxyServer(
         }
 
         fun sendPacket(msgId: Int, message: com.google.protobuf.MessageLite) {
+            Log.d(TAG, "Sending message: msgId=$msgId, type=${message.javaClass.simpleName} to ${socket.remoteSocketAddress}")
             synchronized(output) {
                 try {
                     val bytes = message.toByteArray()
@@ -605,6 +633,7 @@ class BluetoothProxyServer(
                     output.write(bytes)
                     output.flush()
                 } catch (e: Exception) {
+                    Log.e(TAG, "Error sending packet msgId=$msgId to ${socket.remoteSocketAddress}", e)
                     close()
                 }
             }

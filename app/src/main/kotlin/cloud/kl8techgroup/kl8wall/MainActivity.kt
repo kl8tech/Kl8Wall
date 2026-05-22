@@ -58,6 +58,10 @@ import android.os.StatFs
 import android.os.Environment
 import android.os.SystemClock
 import java.util.Locale
+import java.net.NetworkInterface
+import java.net.InetAddress
+import java.net.Inet4Address
+import java.util.Collections
 
 /**
  * Single activity hosting the kiosk WebView and Compose settings overlay.
@@ -336,22 +340,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            @Suppress("DEPRECATION")
-            override fun getIpAddress(): String {
-                val wifiManager = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                val ipInt = wifiManager.connectionInfo.ipAddress
-                return if (ipInt != 0) {
-                    String.format(
-                        Locale.US,
-                        "%d.%d.%d.%d",
-                        ipInt and 0xff,
-                        ipInt shr 8 and 0xff,
-                        ipInt shr 16 and 0xff,
-                        ipInt shr 24 and 0xff
-                    )
-                } else {
-                    "0.0.0.0"
+            private fun getLocalIpAddress(): InetAddress? {
+                try {
+                    val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+                    for (intf in Collections.list(interfaces)) {
+                        if (!intf.isUp || intf.isLoopback) continue
+                        val addrs = intf.inetAddresses
+                        for (addr in Collections.list(addrs)) {
+                            if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                                return addr
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error getting local IP address", e)
                 }
+                return null
+            }
+
+            override fun getIpAddress(): String {
+                return getLocalIpAddress()?.hostAddress ?: "0.0.0.0"
             }
 
             override fun getAppVersion(): String {
