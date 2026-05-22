@@ -8,6 +8,9 @@ import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import org.json.JSONArray
@@ -25,6 +28,12 @@ import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 import cloud.kl8techgroup.kl8wall.system.SslUtil
+
+enum class MqttConnectionState {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED
+}
 
 class MqttManager(
     private val context: Context,
@@ -45,6 +54,36 @@ class MqttManager(
     private var statusPublisherJob: Job? = null
     private var otaCollectorsJob: Job? = null
     private var connectionJob: Job? = null
+
+    private val _connectionState = MutableStateFlow(MqttConnectionState.DISCONNECTED)
+    val connectionState: StateFlow<MqttConnectionState> = _connectionState.asStateFlow()
+
+    private val _lastError = MutableStateFlow<String?>(null)
+    val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    fun isConnected(): Boolean {
+        return mqttClient?.isConnected ?: false
+    }
+
+    private fun isLocalHostOrIp(host: String): Boolean {
+        val trimmed = host.trim().lowercase()
+        if (trimmed == "localhost" || trimmed == "127.0.0.1" || trimmed.endsWith(".local")) {
+            return true
+        }
+        if (trimmed.startsWith("10.") || trimmed.startsWith("192.168.")) {
+            return true
+        }
+        if (trimmed.startsWith("172.")) {
+            val parts = trimmed.split(".")
+            if (parts.size >= 2) {
+                val secondOctet = parts[1].toIntOrNull()
+                if (secondOctet != null && secondOctet in 16..31) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
 
     data class MqttConfig(
         val enabled: Boolean,
@@ -91,7 +130,11 @@ class MqttManager(
         Log.i(TAG, "MQTT config changed: enabled=${config.enabled}, broker=${config.broker}, port=${config.port}")
         currentConfig = config
         disconnectSync()
-        if (!config.enabled || config.broker.isBlank()) return
+        if (!config.enabled || config.broker.isBlank()) {
+            _connectionState.value = MqttConnectionState.DISCONNECTED
+            _lastError.value = if (!config.enabled) "MQTT is disabled" else "Broker address is blank"
+            return
+        }
         connectAsync(config)
     }
 
@@ -102,6 +145,7 @@ class MqttManager(
         statusPublisherJob = null
         otaCollectorsJob?.cancel()
         otaCollectorsJob = null
+        _connectionState.value = MqttConnectionState.DISCONNECTED
         val client = mqttClient
         if (client != null) {
             try {
@@ -143,6 +187,7 @@ class MqttManager(
                     val client = MqttAsyncClient(serverUri, clientId, MemoryPersistence())
                     mqttClient = client
 
+                    _connectionState.value = MqttConnectionState.CONNECTING
                     val options = MqttConnectOptions().apply {
                         isCleanSession = true
                         connectionTimeout = 10
@@ -154,8 +199,16 @@ class MqttManager(
                         if (serverUri.startsWith("ssl://") || serverUri.startsWith("wss://")) {
                             try {
                                 socketFactory = SslUtil.tlsSocketFactory
+                                val host = serverUri.substringAfter("://").substringBefore(":")
+                                sslHostnameVerifier = javax.net.ssl.HostnameVerifier { hostname, session ->
+                                    if (isLocalHostOrIp(host) || isLocalHostOrIp(hostname)) {
+                                        true
+                                    } else {
+                                        javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(hostname, session)
+                                    }
+                                }
                             } catch (e: Exception) {
-                                Log.e(TAG, "Failed to initialize custom TLSSocketFactory for SSL", e)
+                                Log.e(TAG, "Failed to initialize custom TLSSocketFactory or HostnameVerifier for SSL", e)
                             }
                         }
                     }
@@ -163,6 +216,8 @@ class MqttManager(
                     client.setCallback(object : MqttCallbackExtended {
                         override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                             Log.i(TAG, "MQTT connected to $serverURI")
+                            _connectionState.value = MqttConnectionState.CONNECTED
+                            _lastError.value = null
                             publishDiscovery(config.deviceName)
                             subscribeToCommands(config.deviceName)
                             startPeriodicStatusPublisher(config.deviceName)
@@ -170,6 +225,8 @@ class MqttManager(
                         }
                         override fun connectionLost(cause: Throwable?) {
                             Log.w(TAG, "MQTT connection lost: ${cause?.message}")
+                            _connectionState.value = MqttConnectionState.DISCONNECTED
+                            _lastError.value = cause?.message ?: "Connection lost"
                         }
                         override fun messageArrived(topic: String, message: MqttMessage) {
                             if (topic.endsWith("/audio_rx")) {
@@ -197,9 +254,14 @@ class MqttManager(
 
                     deferred.await()
                     Log.i(TAG, "MQTT Connection established successfully")
+                    _connectionState.value = MqttConnectionState.CONNECTED
+                    _lastError.value = null
                     break
                 } catch (e: Exception) {
+                    val errMsg = e.message ?: e.toString()
                     Log.e(TAG, "MQTT connection attempt failed, retrying in ${delayMs / 1000}s", e)
+                    _connectionState.value = MqttConnectionState.DISCONNECTED
+                    _lastError.value = errMsg
                     try {
                         mqttClient?.close()
                     } catch (_: Exception) {}
