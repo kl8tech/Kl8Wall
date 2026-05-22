@@ -118,6 +118,7 @@ class MainActivity : ComponentActivity() {
 
         val permissions = mutableListOf(
             android.Manifest.permission.CAMERA,
+            android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
@@ -606,7 +607,21 @@ private fun KioskWebViewContainer(
                         onError = onError
                     )
 
-                    webChromeClient = android.webkit.WebChromeClient()
+                    webChromeClient = object : android.webkit.WebChromeClient() {
+                        override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                            request?.let {
+                                if (it.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                                    if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                        it.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                                    } else {
+                                        it.deny()
+                                    }
+                                } else {
+                                    it.grant(it.resources)
+                                }
+                            }
+                        }
+                    }
 
                     onWebViewCreated(this)
 
