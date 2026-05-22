@@ -43,6 +43,9 @@ class OtaManager(private val context: Context) {
     private val _updateError = MutableStateFlow<String?>(null)
     val updateError: StateFlow<String?> = _updateError.asStateFlow()
 
+    private val _updateProgress = MutableStateFlow<Int?>(null)
+    val updateProgress: StateFlow<Int?> = _updateProgress.asStateFlow()
+
     private var latestApkUrl: String? = null
 
     val currentVersionName: String
@@ -130,6 +133,7 @@ class OtaManager(private val context: Context) {
         }
         _isUpdating.value = true
         _updateError.value = null
+        _updateProgress.value = 0
         try {
             Log.i(TAG, "Downloading APK from $apkUrl...")
             val url = URL(apkUrl)
@@ -141,6 +145,7 @@ class OtaManager(private val context: Context) {
                 throw Exception("Download server returned ${connection.responseCode}")
             }
 
+            val contentLength = connection.contentLength
             val tempFile = File(context.cacheDir, APK_TEMP_NAME)
             if (tempFile.exists()) {
                 tempFile.delete()
@@ -148,10 +153,21 @@ class OtaManager(private val context: Context) {
 
             connection.inputStream.use { input ->
                 tempFile.outputStream().use { output ->
-                    input.copyTo(output)
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    var totalBytesRead = 0L
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        totalBytesRead += bytesRead
+                        if (contentLength > 0) {
+                            val percent = ((totalBytesRead * 100) / contentLength).toInt()
+                            _updateProgress.value = percent.coerceIn(0, 100)
+                        }
+                    }
                 }
             }
             Log.i(TAG, "APK downloaded to ${tempFile.absolutePath} (${tempFile.length()} bytes)")
+            _updateProgress.value = null
 
             installApk(tempFile)
             true
@@ -159,6 +175,7 @@ class OtaManager(private val context: Context) {
             Log.e(TAG, "OTA Download or Installation failed", e)
             _updateError.value = e.message ?: "Failed to download update"
             _isUpdating.value = false
+            _updateProgress.value = null
             false
         }
     }

@@ -593,6 +593,11 @@ class MqttManager(
                     publishOtaStates(deviceName)
                 }
             }
+            launch {
+                ota.updateProgress.collect {
+                    publishOtaStates(deviceName)
+                }
+            }
         }
     }
 
@@ -601,6 +606,7 @@ class MqttManager(
         val ota = app.otaManager
         val available = ota.updateAvailable.value
         val updating = ota.isUpdating.value
+        val progress = ota.updateProgress.value
         val latestVer = ota.latestVersion.value
         val currentVer = ota.currentVersionName
 
@@ -612,7 +618,8 @@ class MqttManager(
             put("latest_version", if (available && latestVer.isNotEmpty()) latestVer else currentVer)
             put("title", "KL8Wall")
             put("release_url", "https://github.com/kl8tech/Kl8Wall/releases/latest")
-            put("update_percentage", if (updating) JSONObject.NULL else JSONObject.NULL)
+            put("in_progress", updating)
+            put("update_percentage", progress ?: JSONObject.NULL)
         }
         publishString("kl8wall/$deviceName/update/state", updateStateJson.toString(), true)
     }
