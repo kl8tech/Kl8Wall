@@ -651,6 +651,18 @@ private fun KioskWebViewContainer(
                     )
 
                     webChromeClient = object : android.webkit.WebChromeClient() {
+                        override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                            consoleMessage?.let {
+                                if (it.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                                    val msg = it.message()
+                                    if (!msg.contains("favicon")) {
+                                        onError(-1, "JS: $msg (Line ${it.lineNumber()})")
+                                    }
+                                }
+                            }
+                            return super.onConsoleMessage(consoleMessage)
+                        }
+
                         override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
                             request?.let {
                                 val grantedResources = mutableListOf<String>()

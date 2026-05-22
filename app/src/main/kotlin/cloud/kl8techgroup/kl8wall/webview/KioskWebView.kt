@@ -121,8 +121,7 @@ class KioskWebView @JvmOverloads constructor(
 
             setGeolocationEnabled(false)
             mediaPlaybackRequiresUserGesture = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
             useWideViewPort = true
             loadWithOverviewMode = true
