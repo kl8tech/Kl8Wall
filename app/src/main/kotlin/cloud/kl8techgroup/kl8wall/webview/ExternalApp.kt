@@ -77,13 +77,6 @@ class ExternalApp(private val webView: WebView) {
     // --- Unified Internal Handlers ---
 
     private fun handleGetExternalAuth(callback: String, force: Boolean) {
-        Log.d("ExternalApp", "handleGetExternalAuth called: callback=$callback, force=$force")
-
-        if (callback != "externalAuthSetToken") {
-            Log.w("ExternalApp", "Rejected getExternalAuth callback: $callback")
-            return
-        }
-
         val token = app.settingsRepository.getHaToken()
         val script = if (token.isNotEmpty()) {
             "window.$callback(true, { access_token: '$token', expires_in: 1800 })"
@@ -97,17 +90,10 @@ class ExternalApp(private val webView: WebView) {
     }
 
     private fun handleRevokeExternalAuth(callback: String) {
-        Log.d("ExternalApp", "handleRevokeExternalAuth called: callback=$callback")
-
-        if (callback != "externalAuthRevokeToken") {
-            Log.w("ExternalApp", "Rejected revokeExternalAuth callback: $callback")
-            return
-        }
-
-        val script = "window.$callback(true)"
         webView.post {
-            webView.evaluateJavascript(script, null)
+            webView.evaluateJavascript("window.$callback(true)", null)
         }
+        app.settingsRepository.setHaToken("")
     }
 
     private fun handleExternalBus(message: String) {
