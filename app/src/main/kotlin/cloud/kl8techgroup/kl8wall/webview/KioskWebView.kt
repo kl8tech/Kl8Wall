@@ -34,7 +34,7 @@ class KioskWebView @JvmOverloads constructor(
     @SuppressLint("JavascriptInterface")
     fun initBridge(startUrl: String, allowedHosts: Set<String>) {
         setupCookies()
-        setupUserAgent()
+        setupUserAgent(startUrl)
 
         val externalApp = ExternalApp(this)
         addJavascriptInterface(externalApp, "externalApp")
@@ -93,10 +93,14 @@ class KioskWebView @JvmOverloads constructor(
         }
     }
 
-    private fun setupUserAgent() {
+    private fun setupUserAgent(startUrl: String) {
         val defaultUserAgent = settings.userAgentString
-        if (!defaultUserAgent.contains("HomeAssistant/Android")) {
-            settings.userAgentString = "$defaultUserAgent HomeAssistant/Android"
+        if (startUrl.contains("external_auth=1")) {
+            if (!defaultUserAgent.contains("HomeAssistant/Android")) {
+                settings.userAgentString = "$defaultUserAgent HomeAssistant/Android"
+            }
+        } else {
+            settings.userAgentString = defaultUserAgent.replace(" HomeAssistant/Android", "")
         }
     }
 
