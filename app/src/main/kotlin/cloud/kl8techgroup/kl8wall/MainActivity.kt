@@ -89,7 +89,6 @@ class MainActivity : ComponentActivity() {
     private var clearCacheRequested = false
 
     private var isRequestingPermissions = false
-    private var hasRequestedPermissionsThisSession = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -689,6 +688,10 @@ private fun KioskWebViewContainer(
             },
             modifier = Modifier.fillMaxSize()
         )
+    }
+
+    companion object {
+        var hasRequestedPermissionsThisSession = false
     }
 }
 
