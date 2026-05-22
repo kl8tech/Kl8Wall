@@ -2,5 +2,5 @@
   "version": "2.0.22",
   "versionCode": 24,
   "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.22/kl8wall-v24.apk",
-  "changelog": "Release v2.0.22 - Fixed OTA updates parsing and muted JS console error alerts in UI."
+  "changelog": "Release v2.0.22 - Please see GitHub release notes for details."
 }
