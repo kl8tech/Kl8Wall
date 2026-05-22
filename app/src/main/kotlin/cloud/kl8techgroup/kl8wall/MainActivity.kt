@@ -492,6 +492,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    companion object {
+        var hasRequestedPermissionsThisSession = false
+    }
 }
 
 @Composable
@@ -688,10 +691,6 @@ private fun KioskWebViewContainer(
             },
             modifier = Modifier.fillMaxSize()
         )
-    }
-
-    companion object {
-        var hasRequestedPermissionsThisSession = false
     }
 }
 
