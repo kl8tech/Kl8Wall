@@ -19,17 +19,66 @@ class ExternalApp(private val webView: WebView) {
     private val app = webView.context.applicationContext as KL8WallApplication
 
     /**
-     * Called by the Home Assistant frontend to request an authentication token.
-     *
-     * @param callback The JavaScript global function name to invoke with results.
-     *                 For security, only "externalAuthSetToken" is accepted.
-     * @param force True if the frontend wants to force token renewal.
+     * V2 Message Handler for `WebViewCompat.addWebMessageListener` ("externalAppV2").
+     */
+    fun handleV2Message(message: String?) {
+        if (message == null) return
+        Log.d("ExternalApp", "V2 Message received: $message")
+        try {
+            val json = JSONObject(message)
+            val type = json.optString("type")
+
+            when (type) {
+                "getExternalAuth" -> {
+                    val payload = json.optJSONObject("payload")
+                    val callback = payload?.optString("callback") ?: "externalAuthSetToken"
+                    val force = payload?.optBoolean("force") ?: false
+                    handleGetExternalAuth(callback, force)
+                }
+                "revokeExternalAuth" -> {
+                    val payload = json.optJSONObject("payload")
+                    val callback = payload?.optString("callback") ?: "externalAuthRevokeToken"
+                    handleRevokeExternalAuth(callback)
+                }
+                else -> {
+                    // Treat as standard external bus message
+                    handleExternalBus(message)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ExternalApp", "Error handling V2 message: $message", e)
+        }
+    }
+
+    /**
+     * V1 Fallback: Called by the Home Assistant frontend to request an authentication token.
      */
     @JavascriptInterface
     fun getExternalAuth(callback: String, force: Boolean) {
-        Log.d("ExternalApp", "getExternalAuth called: callback=$callback, force=$force")
+        handleGetExternalAuth(callback, force)
+    }
 
-        // Strictest possible security: reject any callback other than the exact expected function
+    /**
+     * V1 Fallback: Called by the Home Assistant frontend to revoke the current authentication session.
+     */
+    @JavascriptInterface
+    fun revokeExternalAuth(callback: String) {
+        handleRevokeExternalAuth(callback)
+    }
+
+    /**
+     * V1 Fallback: Generalized message bus endpoint for frontend-to-app commands.
+     */
+    @JavascriptInterface
+    fun externalBus(message: String) {
+        handleExternalBus(message)
+    }
+
+    // --- Unified Internal Handlers ---
+
+    private fun handleGetExternalAuth(callback: String, force: Boolean) {
+        Log.d("ExternalApp", "handleGetExternalAuth called: callback=$callback, force=$force")
+
         if (callback != "externalAuthSetToken") {
             Log.w("ExternalApp", "Rejected getExternalAuth callback: $callback")
             return
@@ -37,7 +86,6 @@ class ExternalApp(private val webView: WebView) {
 
         val token = app.settingsRepository.getHaToken()
         val script = if (token.isNotEmpty()) {
-            // Deliver token back to the Lovelace authentication module
             "window.$callback(true, { access_token: '$token', expires_in: 1800 })"
         } else {
             "window.$callback(false, null)"
@@ -48,15 +96,8 @@ class ExternalApp(private val webView: WebView) {
         }
     }
 
-    /**
-     * Called by the Home Assistant frontend to revoke the current authentication session.
-     *
-     * @param callback The JavaScript function to call when done.
-     *                 For security, only "externalAuthRevokeToken" is accepted.
-     */
-    @JavascriptInterface
-    fun revokeExternalAuth(callback: String) {
-        Log.d("ExternalApp", "revokeExternalAuth called: callback=$callback")
+    private fun handleRevokeExternalAuth(callback: String) {
+        Log.d("ExternalApp", "handleRevokeExternalAuth called: callback=$callback")
 
         if (callback != "externalAuthRevokeToken") {
             Log.w("ExternalApp", "Rejected revokeExternalAuth callback: $callback")
@@ -69,14 +110,8 @@ class ExternalApp(private val webView: WebView) {
         }
     }
 
-    /**
-     * Generalized message bus endpoint for frontend-to-app commands.
-     *
-     * @param message A serialized JSON payload containing "id", "type", and "payload".
-     */
-    @JavascriptInterface
-    fun externalBus(message: String) {
-        Log.d("ExternalApp", "externalBus message received: $message")
+    private fun handleExternalBus(message: String) {
+        Log.d("ExternalApp", "handleExternalBus message received: $message")
         try {
             val json = JSONObject(message)
             val id = json.optLong("id")
@@ -84,7 +119,6 @@ class ExternalApp(private val webView: WebView) {
 
             when (type) {
                 "config/get" -> {
-                    // Report capabilities so the Lovelace frontend knows we support settings integrations
                     val result = JSONObject().apply {
                         put("hasSettingsScreen", true)
                         put("canWriteTag", false)
@@ -98,7 +132,6 @@ class ExternalApp(private val webView: WebView) {
                     sendBusResult(id, result)
                 }
                 "config_screen/show" -> {
-                    // Open our settings overlay when clicking 'App Settings' in the sidebar menu
                     webView.post {
                         app.deviceController?.openSettings()
                     }
@@ -112,9 +145,6 @@ class ExternalApp(private val webView: WebView) {
         }
     }
 
-    /**
-     * Send command success results back to the Home Assistant frontend.
-     */
     private fun sendBusResult(id: Long, result: JSONObject) {
         val response = JSONObject().apply {
             put("id", id)

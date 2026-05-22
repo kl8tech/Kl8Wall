@@ -3,10 +3,13 @@ package cloud.kl8techgroup.kl8wall.webview
 import android.annotation.SuppressLint
 import android.content.Context
 import android.util.AttributeSet
+import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 /**
  * Hardened WebView for kiosk display of a Home Assistant dashboard.
@@ -26,9 +29,61 @@ class KioskWebView @JvmOverloads constructor(
     init {
         applyHardeningFlags()
         applyKioskBehavior()
+    }
+
+    @SuppressLint("JavascriptInterface")
+    fun initBridge(startUrl: String, allowedHosts: Set<String>) {
         setupCookies()
         setupUserAgent()
-        registerJsBridge()
+
+        val externalApp = ExternalApp(this)
+        addJavascriptInterface(externalApp, "externalApp")
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            val originRules = getOriginRules(startUrl, allowedHosts)
+            if (originRules.isNotEmpty()) {
+                try {
+                    WebViewCompat.addWebMessageListener(this, "externalAppV2", originRules) { _, message, _, _, _ ->
+                        externalApp.handleV2Message(message.data)
+                    }
+                    Log.d("KioskWebView", "Registered externalAppV2 listener with rules: $originRules")
+                } catch (e: Exception) {
+                    Log.e("KioskWebView", "Failed to register externalAppV2 listener", e)
+                }
+            }
+        }
+    }
+
+    private fun getOriginRules(startUrl: String, allowedHosts: Set<String>): Set<String> {
+        val rules = mutableSetOf<String>()
+        if (startUrl.isBlank()) return rules
+
+        try {
+            val startUri = android.net.Uri.parse(startUrl)
+            val startScheme = startUri.scheme ?: "http"
+            val startHost = startUri.host ?: ""
+            val startPort = startUri.port
+
+            if (startHost.isNotEmpty()) {
+                if (startPort != -1) {
+                    rules.add("$startScheme://$startHost:$startPort")
+                } else {
+                    rules.add("$startScheme://$startHost")
+                }
+            }
+
+            allowedHosts.forEach { host ->
+                rules.add("http://$host")
+                rules.add("https://$host")
+                if (startPort != -1 && startPort != 80 && startPort != 443) {
+                    rules.add("http://$host:$startPort")
+                    rules.add("https://$host:$startPort")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("KioskWebView", "Error generating origin rules", e)
+        }
+        return rules
     }
 
     private fun setupCookies() {
@@ -43,11 +98,6 @@ class KioskWebView @JvmOverloads constructor(
         if (!defaultUserAgent.contains("HomeAssistant/Android")) {
             settings.userAgentString = "$defaultUserAgent HomeAssistant/Android"
         }
-    }
-
-    @SuppressLint("JavascriptInterface")
-    private fun registerJsBridge() {
-        addJavascriptInterface(ExternalApp(this), "externalApp")
     }
 
     @SuppressLint("SetJavaScriptEnabled")

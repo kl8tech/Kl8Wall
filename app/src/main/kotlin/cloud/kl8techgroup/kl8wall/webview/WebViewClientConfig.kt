@@ -188,8 +188,7 @@ class WebViewClientConfig(
                         ' size=' + k.offsetWidth + 'x' + k.offsetHeight);
                 }
                 var splash = document.getElementById('ha-launch-screen');
-                if (!splash) splash = document.body.children[0];
-                if (splash && splash.tagName !== 'HOME-ASSISTANT' && splash.tagName !== 'SCRIPT') {
+                if (splash) {
                     splash.style.display = 'none';
                     console.log('[KL8Wall-DEBUG-DELAYED] hid splash: <' + splash.tagName + '>');
                 }

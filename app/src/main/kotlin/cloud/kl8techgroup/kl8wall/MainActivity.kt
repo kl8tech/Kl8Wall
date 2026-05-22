@@ -582,46 +582,50 @@ private fun KioskWebViewContainer(
     val context = androidx.compose.ui.platform.LocalContext.current
     val settingsRepo = (context.applicationContext as KL8WallApplication).settingsRepository
 
-    AndroidView(
-        factory = {
-            KioskWebView(it).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
+    androidx.compose.runtime.key(startUrl, allowedHosts) {
+        AndroidView(
+            factory = {
+                KioskWebView(it).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
 
-                val interceptor = AuthInterceptor(
-                    tokenProvider = { settingsRepo.getHaToken() },
-                    allowedHosts = { viewModel.allowedHosts.value }
-                )
+                    initBridge(startUrl, allowedHosts)
 
-                webViewClient = WebViewClientConfig(
-                    authInterceptor = interceptor,
-                    allowedHosts = { viewModel.allowedHosts.value },
-                    onPageLoaded = onUrlChanged,
-                    onNavigationBlocked = onNavigationBlocked,
-                    onError = onError
-                )
+                    val interceptor = AuthInterceptor(
+                        tokenProvider = { settingsRepo.getHaToken() },
+                        allowedHosts = { viewModel.allowedHosts.value }
+                    )
 
-                webChromeClient = android.webkit.WebChromeClient()
+                    webViewClient = WebViewClientConfig(
+                        authInterceptor = interceptor,
+                        allowedHosts = { viewModel.allowedHosts.value },
+                        onPageLoaded = onUrlChanged,
+                        onNavigationBlocked = onNavigationBlocked,
+                        onError = onError
+                    )
 
-                onWebViewCreated(this)
+                    webChromeClient = android.webkit.WebChromeClient()
 
-                val finalUrl = buildStartUrl(startUrl) { settingsRepo.getHaToken() }
-                if (finalUrl.isNotBlank()) {
-                    loadUrl(finalUrl)
+                    onWebViewCreated(this)
+
+                    val finalUrl = buildStartUrl(startUrl) { settingsRepo.getHaToken() }
+                    if (finalUrl.isNotBlank()) {
+                        loadUrl(finalUrl)
+                    }
                 }
-            }
-        },
-        update = { view ->
-            val currentViewUrl = view.url ?: ""
-            if (startUrl.isNotBlank() && currentViewUrl.isEmpty()) {
-                val finalUrl = buildStartUrl(startUrl) { settingsRepo.getHaToken() }
-                view.loadUrl(finalUrl)
-            }
-        },
-        modifier = Modifier.fillMaxSize()
-    )
+            },
+            update = { view ->
+                val currentViewUrl = view.url ?: ""
+                if (startUrl.isNotBlank() && currentViewUrl.isEmpty()) {
+                    val finalUrl = buildStartUrl(startUrl) { settingsRepo.getHaToken() }
+                    view.loadUrl(finalUrl)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
 }
 
 private fun buildStartUrl(baseUrl: String, tokenProvider: () -> String): String {

@@ -7,6 +7,7 @@ activity-compose = "1.9.3"
 core-ktx = "1.15.0"
 lifecycle = "2.8.7"
 security-crypto = "1.1.0-alpha06"
+androidx-webkit = "1.16.0"
 nanohttpd = "2.3.1"
 jmdns = "3.6.0"
 kotlinx-serialization = "1.7.3"
@@ -35,6 +36,7 @@ activity-compose = { group = "androidx.activity", name = "activity-compose", ver
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
 lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "androidx-webkit" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 jmdns = { group = "org.jmdns", name = "jmdns", version.ref = "jmdns" }
