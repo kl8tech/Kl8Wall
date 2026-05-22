@@ -41,14 +41,21 @@ jobs:
 
       - name: Create or Update update.json
         run: |
-          cat <<EOF > update.json
-          {
-            "version": "${{ steps.meta.outputs.VERSION_NAME }}",
-            "versionCode": ${{ steps.meta.outputs.VERSION_CODE }},
-            "url": "https://github.com/kl8tech/Kl8Wall/releases/download/${{ github.ref_name }}/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk",
-            "changelog": "Release ${{ github.ref_name }} - Please see GitHub release notes for details."
-          }
-          EOF
+          if [ -f update.json ]; then
+            jq --arg version "${{ steps.meta.outputs.VERSION_NAME }}" \
+               --argjson versionCode "${{ steps.meta.outputs.VERSION_CODE }}" \
+               --arg url "https://github.com/kl8tech/Kl8Wall/releases/download/${{ github.ref_name }}/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk" \
+               --arg default_changelog "Release ${{ github.ref_name }} - Please see GitHub release notes for details." \
+               '.version = $version | .versionCode = $versionCode | .url = $url | .changelog = (.changelog // $default_changelog)' \
+               update.json > update.json.tmp && mv update.json.tmp update.json
+          else
+            jq -n \
+               --arg version "${{ steps.meta.outputs.VERSION_NAME }}" \
+               --argjson versionCode "${{ steps.meta.outputs.VERSION_CODE }}" \
+               --arg url "https://github.com/kl8tech/Kl8Wall/releases/download/${{ github.ref_name }}/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk" \
+               --arg changelog "Release ${{ github.ref_name }} - Please see GitHub release notes for details." \
+               '{version: $version, versionCode: $versionCode, url: $url, changelog: $changelog}' > update.json
+          fi
 
       - name: Commit and Push update.json
         run: |
