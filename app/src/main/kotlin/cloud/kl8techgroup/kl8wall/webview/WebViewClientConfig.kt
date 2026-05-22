@@ -64,7 +64,8 @@ class WebViewClientConfig(
     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
         super.onReceivedError(view, request, error)
         if (request.isForMainFrame) {
-            onError(error.errorCode, error.description?.toString() ?: "Unknown error")
+            val failingUrl = request.url?.toString() ?: "unknown"
+            onError(error.errorCode, "${error.description} ($failingUrl)")
         }
     }
 
