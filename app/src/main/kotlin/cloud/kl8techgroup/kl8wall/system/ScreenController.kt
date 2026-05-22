@@ -37,7 +37,7 @@ class ScreenController(private val context: Context) {
         }
         wakeLock?.let { lock ->
             if (!lock.isHeld) {
-                lock.acquire(WAKE_LOCK_TIMEOUT_MS)
+                lock.acquire()
                 _isScreenOn.value = true
             }
         }

@@ -12,6 +12,7 @@
 
     <!-- Kiosk: keep screen alive -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
 
     <!-- Auto-launch on boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

@@ -93,6 +93,8 @@ class MainActivity : ComponentActivity() {
 
     @Volatile
     private var currentWebViewUrl: String = ""
+    @Suppress("DEPRECATION")
+    private var keyguardLock: android.app.KeyguardManager.KeyguardLock? = null
     private var kioskWebView: KioskWebView? = null
     private var clearCacheRequested = false
 
@@ -163,6 +165,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 delay(1000)
+            }
+        }
+
+        // Collect screenAlwaysOn flow to dynamically apply flags and locks
+        lifecycleScope.launch {
+            app.settingsRepository.screenAlwaysOn.collect { alwaysOn ->
+                updateScreenAlwaysOnFlags(alwaysOn)
             }
         }
 
@@ -324,9 +333,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        screenController.acquireWakeLock()
-
         val app = application as KL8WallApplication
+        updateScreenAlwaysOnFlags(app.settingsRepository.screenAlwaysOn.value)
         val devController = createDeviceController()
         app.deviceController = devController
 
@@ -365,7 +373,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        screenController.releaseWakeLock()
+        val app = application as? KL8WallApplication
+        val alwaysOn = app?.settingsRepository?.screenAlwaysOn?.value ?: true
+        if (!alwaysOn) {
+            screenController.releaseWakeLock()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -624,6 +636,65 @@ class MainActivity : ComponentActivity() {
                 }
                 app.brightnessController.setBrightness(targetBrightness)
             }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun disableKeyguard() {
+        try {
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+            if (keyguardLock == null) {
+                keyguardLock = keyguardManager?.newKeyguardLock("kl8wall:keyguard_lock")
+            }
+            keyguardLock?.disableKeyguard()
+            Log.i("MainActivity", "Keyguard disabled programmatically")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to disable keyguard", e)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun reenableKeyguard() {
+        try {
+            keyguardLock?.reenableKeyguard()
+            keyguardLock = null
+            Log.i("MainActivity", "Keyguard re-enabled programmatically")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to re-enable keyguard", e)
+        }
+    }
+
+    private fun updateScreenAlwaysOnFlags(alwaysOn: Boolean) {
+        if (alwaysOn) {
+            disableKeyguard()
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+            screenController.acquireWakeLock()
+        } else {
+            reenableKeyguard()
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                setShowWhenLocked(false)
+                setTurnScreenOn(false)
+            } else {
+                @Suppress("DEPRECATION")
+                window.clearFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+            screenController.releaseWakeLock()
         }
     }
 
