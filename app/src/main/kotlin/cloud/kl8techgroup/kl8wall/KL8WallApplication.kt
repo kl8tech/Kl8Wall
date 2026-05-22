@@ -71,6 +71,8 @@ class KL8WallApplication : Application() {
         private set
     var bluetoothProxyServer: BluetoothProxyServer? = null
         private set
+    var intercomManager: cloud.kl8techgroup.kl8wall.intercom.IntercomManager? = null
+        private set
 
     var isAppInForeground: Boolean = false
         private set
@@ -203,7 +205,22 @@ class KL8WallApplication : Application() {
     fun startServices(activity: androidx.activity.ComponentActivity, devController: DeviceController) {
         if (mqttManager != null) return
 
-        val mqtt = MqttManager(this, settingsRepository, devController)
+        val intercom = cloud.kl8techgroup.kl8wall.intercom.IntercomManager(this) { target, bytes ->
+            mqttManager?.publishAudio(target, bytes)
+        }
+        intercomManager = intercom
+
+        val mqtt = MqttManager(
+            context = this,
+            settingsRepository = settingsRepository,
+            deviceController = devController,
+            onIncomingAudio = { bytes ->
+                intercom.handleIncomingAudio(bytes)
+            },
+            onIntercomCommand = { cmd ->
+                handleIntercomCommand(cmd)
+            }
+        )
         mqttManager = mqtt
         mqtt.start()
 
@@ -227,6 +244,20 @@ class KL8WallApplication : Application() {
         ble.start()
     }
 
+    private fun handleIntercomCommand(cmd: String) {
+        val cleanCmd = cmd.trim()
+        val lowerCmd = cleanCmd.lowercase()
+        if (lowerCmd.startsWith("start:")) {
+            val target = cleanCmd.substringAfter("start:").trim()
+            if (target.isNotEmpty()) {
+                intercomManager?.startRecording(target)
+            }
+        } else if (lowerCmd == "stop") {
+            intercomManager?.stopRecording()
+            intercomManager?.stopPlayback()
+        }
+    }
+
     /**
      * Stop all background managers.
      */
@@ -239,6 +270,10 @@ class KL8WallApplication : Application() {
 
         bluetoothProxyServer?.stop()
         bluetoothProxyServer = null
+
+        intercomManager?.stopRecording()
+        intercomManager?.stopPlayback()
+        intercomManager = null
 
         mqttManager?.stop()
         mqttManager = null

@@ -17,7 +17,9 @@ import java.util.UUID
 class MqttManager(
     private val context: Context,
     private val settingsRepository: SettingsRepository,
-    private val deviceController: DeviceController
+    private val deviceController: DeviceController,
+    private val onIncomingAudio: (ByteArray) -> Unit,
+    private val onIntercomCommand: (String) -> Unit
 ) {
     companion object {
         private const val TAG = "MqttManager"
@@ -125,8 +127,15 @@ class MqttManager(
                 }
                 override fun connectionLost(cause: Throwable?) {}
                 override fun messageArrived(topic: String, message: MqttMessage) {
-                    val payload = message.payload.toString(Charsets.UTF_8)
-                    handleCommand(topic, payload, config.deviceName)
+                    if (topic.endsWith("/audio_rx")) {
+                        onIncomingAudio(message.payload)
+                    } else if (topic.endsWith("/intercom/cmd")) {
+                        val payload = message.payload.toString(Charsets.UTF_8)
+                        onIntercomCommand(payload)
+                    } else {
+                        val payload = message.payload.toString(Charsets.UTF_8)
+                        handleCommand(topic, payload, config.deviceName)
+                    }
                 }
                 override fun deliveryComplete(token: IMqttDeliveryToken?) {}
             })
@@ -338,7 +347,9 @@ class MqttManager(
             "kl8wall/$deviceName/screenshot/cmd",
             "kl8wall/$deviceName/check_update/cmd",
             "kl8wall/$deviceName/trigger_update/cmd",
-            "kl8wall/$deviceName/update/cmd"
+            "kl8wall/$deviceName/update/cmd",
+            "kl8wall/$deviceName/intercom/cmd",
+            "kl8wall/$deviceName/audio_rx"
         )
         val qos = IntArray(topics.size) { 1 }
 
@@ -537,6 +548,10 @@ class MqttManager(
     fun publishCameraImage(imageBytes: ByteArray) {
         val config = currentConfig ?: return
         publishBytes("kl8wall/${config.deviceName}/camera/image", imageBytes, retain = false)
+    }
+
+    fun publishAudio(targetDevice: String, audioBytes: ByteArray) {
+        publishBytes("kl8wall/$targetDevice/audio_rx", audioBytes, retain = false)
     }
 
     private fun publishString(topic: String, message: String, retain: Boolean) {
