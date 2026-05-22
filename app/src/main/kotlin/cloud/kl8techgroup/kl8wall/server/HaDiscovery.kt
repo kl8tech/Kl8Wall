@@ -56,12 +56,12 @@ object HaDiscovery {
                 val info = event.info ?: return
                 val host = info.inet4Addresses.firstOrNull()?.hostAddress ?: return
                 val port = info.port
-                val scheme = if (port == HTTPS_PORT) "https" else "http"
-                val instance = HaInstance(
-                    name = info.name,
-                    url = "$scheme://$host:$port"
-                )
-                trySend(instance)
+                if (port == HTTPS_PORT) {
+                    trySend(HaInstance(name = "${info.name} (HTTPS)", url = "https://$host:$port"))
+                } else {
+                    trySend(HaInstance(name = "${info.name} (HTTP)", url = "http://$host:$port"))
+                    trySend(HaInstance(name = "${info.name} (HTTPS)", url = "https://$host:$port"))
+                }
             }
 
             override fun serviceRemoved(event: ServiceEvent) {

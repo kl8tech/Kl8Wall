@@ -1,6 +1,6 @@
 {
-  "version": "2.0.22",
-  "versionCode": 24,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.22/kl8wall-v24.apk",
-  "changelog": "Release v2.0.22 - Please see GitHub release notes for details."
+  "version": "2.0.23",
+  "versionCode": 25,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.23/kl8wall-v25.apk",
+  "changelog": "Release v2.0.23 - Added automatic local HTTP and HTTPS discovery options."
 }
