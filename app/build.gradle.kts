@@ -14,10 +14,10 @@ android {
 
     defaultConfig {
         applicationId = "cloud.kl8techgroup.kl8wall"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 35
-        versionCode = 27
-        versionName = "2.0.25"
+        versionCode = 28
+        versionName = "2.0.26"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
