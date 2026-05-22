@@ -30,27 +30,41 @@ class PresenceSensorManager(
 
     private var lightSensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
     private var proximitySensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+    private var pressureSensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE)
+    private var ambientTempSensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE)
+    private var humiditySensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_RELATIVE_HUMIDITY)
 
     private var lastLux: Float? = null
     var isPresent = false
         private set
     private var timeoutJob: Job? = null
     
+    // Exposed sensor readings
+    var latestLux = 0.0f
+        private set
+    var latestProximity = 0.0f
+        private set
+    var latestPressure = 0.0f
+        private set
+    var latestAmbientTemp = 0.0f
+        private set
+    var latestHumidity = 0.0f
+        private set
+
     // Config values
     private var isEnabled = false
     private var timeoutSeconds = 30
 
     fun start() {
         Log.d(TAG, "Starting PresenceSensorManager...")
+        // Always register sensors so they can be read by clients
+        registerSensors()
         
-        // Listen to configuration changes
+        // Listen to configuration changes for presence-specific behavior
         scope.launch {
             settingsRepository.presenceSensorEnabled.collectLatest { enabled ->
                 isEnabled = enabled
-                if (enabled) {
-                    registerSensors()
-                } else {
-                    unregisterSensors()
+                if (!enabled) {
                     setPresence(false)
                 }
             }
@@ -74,11 +88,20 @@ class PresenceSensorManager(
     }
 
     private fun registerSensors() {
-        Log.i(TAG, "Registering hardware sensors for presence detection")
+        Log.i(TAG, "Registering hardware sensors")
         lightSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
         proximitySensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        pressureSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        ambientTempSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        humiditySensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
     }
@@ -154,33 +177,48 @@ class PresenceSensorManager(
     // --- SensorEventListener Overrides ---
 
     override fun onSensorChanged(event: SensorEvent?) {
-        if (!isEnabled || event == null) return
+        if (event == null) return
 
         when (event.sensor.type) {
             Sensor.TYPE_PROXIMITY -> {
                 val distance = event.values[0]
+                latestProximity = distance
                 val maxRange = event.sensor.maximumRange
                 Log.d(TAG, "Proximity change: distance=$distance, maxRange=$maxRange")
                 
-                // Usually proximity sensor returns 0 for close, and maximumRange for far
-                val isNear = distance < maxRange && distance < 10.0f // within 10cm
-                if (isNear) {
-                    triggerPresence("proximity")
+                if (isEnabled) {
+                    val isNear = distance < maxRange && distance < 10.0f // within 10cm
+                    if (isNear) {
+                        triggerPresence("proximity")
+                    }
                 }
             }
             
             Sensor.TYPE_LIGHT -> {
                 val currentLux = event.values[0]
+                latestLux = currentLux
                 val last = lastLux
                 Log.d(TAG, "Light sensor change: currentLux=$currentLux")
                 
-                if (last != null) {
+                if (isEnabled && last != null) {
                     val delta = abs(currentLux - last)
                     if (delta >= LIGHT_THRESHOLD) {
                         triggerPresence("ambient_light")
                     }
                 }
                 lastLux = currentLux
+            }
+
+            Sensor.TYPE_PRESSURE -> {
+                latestPressure = event.values[0]
+            }
+
+            Sensor.TYPE_AMBIENT_TEMPERATURE -> {
+                latestAmbientTemp = event.values[0]
+            }
+
+            Sensor.TYPE_RELATIVE_HUMIDITY -> {
+                latestHumidity = event.values[0]
             }
         }
     }

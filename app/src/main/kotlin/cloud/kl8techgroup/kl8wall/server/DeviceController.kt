@@ -95,4 +95,19 @@ interface DeviceController {
 
     /** Reboot the application (relaunch process/activity). */
     fun rebootApp()
+
+    /** Get latest ambient light sensor reading in lux. */
+    fun getAmbientLight(): Float
+
+    /** Get latest proximity sensor reading in cm. */
+    fun getProximity(): Float
+
+    /** Get latest pressure sensor reading in hPa. */
+    fun getPressure(): Float
+
+    /** Get latest ambient temperature sensor reading in °C. */
+    fun getAmbientTemp(): Float
+
+    /** Get latest relative humidity sensor reading in %. */
+    fun getHumidity(): Float
 }

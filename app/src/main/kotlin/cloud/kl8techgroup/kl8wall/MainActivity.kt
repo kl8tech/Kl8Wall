@@ -62,6 +62,8 @@ import java.net.NetworkInterface
 import java.net.InetAddress
 import java.net.Inet4Address
 import java.util.Collections
+import android.net.Uri
+import android.provider.Settings
 
 /**
  * Single activity hosting the kiosk WebView and Compose settings overlay.
@@ -114,14 +116,28 @@ class MainActivity : ComponentActivity() {
             onTriggered = { _settingsRequested.value = true }
         )
 
-        val permissions = mutableListOf(android.Manifest.permission.CAMERA)
+        val permissions = mutableListOf(
+            android.Manifest.permission.CAMERA,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        )
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             permissions.add(android.Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            permissions.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
         }
         requestPermissionLauncher.launch(permissions.toTypedArray())
+
+        if (!Settings.System.canWrite(this)) {
+            try {
+                val writeSettingsIntent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(writeSettingsIntent)
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to start WRITE_SETTINGS settings intent", e)
+            }
+        }
 
         setContent {
             KL8WallTheme {
@@ -411,6 +427,26 @@ class MainActivity : ComponentActivity() {
                         Log.e("MainActivity", "Failed to relaunch app", e)
                     }
                 }
+            }
+
+            override fun getAmbientLight(): Float {
+                return app.presenceSensorManager?.latestLux ?: 0.0f
+            }
+
+            override fun getProximity(): Float {
+                return app.presenceSensorManager?.latestProximity ?: 0.0f
+            }
+
+            override fun getPressure(): Float {
+                return app.presenceSensorManager?.latestPressure ?: 0.0f
+            }
+
+            override fun getAmbientTemp(): Float {
+                return app.presenceSensorManager?.latestAmbientTemp ?: 0.0f
+            }
+
+            override fun getHumidity(): Float {
+                return app.presenceSensorManager?.latestHumidity ?: 0.0f
             }
         }
     }

@@ -1,6 +1,7 @@
 package cloud.kl8techgroup.kl8wall.mqtt
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import cloud.kl8techgroup.kl8wall.server.DeviceController
 import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
@@ -250,6 +251,29 @@ class MqttManager(
         pubSens("ip_address", "IP Address", "", "", "")
         pubSens("app_version", "App Version", "", "", "")
         pubSens("url", "Current URL", "", "", "")
+
+        pubSens("ambient_light", "Ambient Light", "lx", "illuminance", "measurement")
+        pubSens("proximity", "Proximity", "cm", "", "measurement")
+        pubSens("pressure", "Pressure", "hPa", "pressure", "measurement")
+        pubSens("ambient_temp", "Ambient Temperature", "°C", "temperature", "measurement")
+        pubSens("humidity", "Humidity", "%", "humidity", "measurement")
+        pubSens("bluetooth_devices_count", "Bluetooth Devices Count", "", "", "measurement")
+        pubSens("bluetooth_devices_list", "Bluetooth Devices List", "", "", "")
+
+        fun pubSwitch(id: String, name: String) {
+            val cfg = JSONObject().apply {
+                put("name", name)
+                put("unique_id", "kl8wall_${deviceName}_$id")
+                put("command_topic", "kl8wall/$deviceName/$id/cmd")
+                put("state_topic", "kl8wall/$deviceName/$id/state")
+                put("payload_on", "ON")
+                put("payload_off", "OFF")
+                put("device", deviceJson)
+            }
+            publishString("homeassistant/switch/kl8wall_$deviceName/$id/config", cfg.toString(), retain = true)
+        }
+        pubSwitch("app_foreground", "App Foreground")
+        pubSwitch("camera_streaming", "Camera Streaming")
     }
 
     private fun subscribeToCommands(deviceName: String) {
@@ -264,7 +288,9 @@ class MqttManager(
             "kl8wall/$deviceName/reboot/cmd",
             "kl8wall/$deviceName/screen_timeout/cmd",
             "kl8wall/$deviceName/presence_timeout/cmd",
-            "kl8wall/$deviceName/tts_volume/cmd"
+            "kl8wall/$deviceName/tts_volume/cmd",
+            "kl8wall/$deviceName/app_foreground/cmd",
+            "kl8wall/$deviceName/camera_streaming/cmd"
         )
         val qos = IntArray(topics.size) { 1 }
 
@@ -315,6 +341,34 @@ class MqttManager(
                             publishString("kl8wall/$deviceName/tts_volume/state", vol.toString(), true)
                         }
                     }
+                    "kl8wall/$deviceName/app_foreground/cmd" -> {
+                        if (payload.uppercase() == "ON") {
+                            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            }
+                            if (launchIntent != null) {
+                                context.startActivity(launchIntent)
+                                publishAppForegroundState(true)
+                            }
+                        } else if (payload.uppercase() == "OFF") {
+                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                addCategory(Intent.CATEGORY_HOME)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(homeIntent)
+                            publishAppForegroundState(false)
+                        }
+                    }
+                    "kl8wall/$deviceName/camera_streaming/cmd" -> {
+                        val app = context as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        if (payload.uppercase() == "ON") {
+                            app?.cameraManager?.isStreamingEnabled = true
+                            publishCameraStreamingState(deviceName, true)
+                        } else if (payload.uppercase() == "OFF") {
+                            app?.cameraManager?.isStreamingEnabled = false
+                            publishCameraStreamingState(deviceName, false)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing command on $topic: $payload", e)
@@ -353,6 +407,25 @@ class MqttManager(
                 publishString("kl8wall/$deviceName/ip_address/state", deviceController.getIpAddress(), false)
                 publishString("kl8wall/$deviceName/app_version/state", deviceController.getAppVersion(), false)
                 
+                publishString("kl8wall/$deviceName/ambient_light/state", deviceController.getAmbientLight().toString(), false)
+                publishString("kl8wall/$deviceName/proximity/state", deviceController.getProximity().toString(), false)
+                publishString("kl8wall/$deviceName/pressure/state", deviceController.getPressure().toString(), false)
+                publishString("kl8wall/$deviceName/ambient_temp/state", deviceController.getAmbientTemp().toString(), false)
+                publishString("kl8wall/$deviceName/humidity/state", deviceController.getHumidity().toString(), false)
+
+                val app = context as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                val inForeground = app?.isAppInForeground ?: false
+                publishString("kl8wall/$deviceName/app_foreground/state", if (inForeground) "ON" else "OFF", false)
+                
+                val isStreaming = app?.cameraManager?.isStreamingEnabled ?: false
+                publishString("kl8wall/$deviceName/camera_streaming/state", if (isStreaming) "ON" else "OFF", false)
+
+                val bleProxy = app?.bluetoothProxyServer
+                val bleCount = bleProxy?.getNearbyDevicesCount() ?: 0
+                val bleList = bleProxy?.getNearbyDevicesList() ?: ""
+                publishString("kl8wall/$deviceName/bluetooth_devices_count/state", bleCount.toString(), false)
+                publishString("kl8wall/$deviceName/bluetooth_devices_list/state", bleList, false)
+
                 publishString("kl8wall/$deviceName/screen_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
                 publishString("kl8wall/$deviceName/presence_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
                 publishString("kl8wall/$deviceName/tts_volume/state", deviceController.getTtsVolume().toString(), false)
@@ -371,6 +444,15 @@ class MqttManager(
     fun publishPresenceState(isPresent: Boolean) {
         val config = currentConfig ?: return
         publishString("kl8wall/${config.deviceName}/presence/state", if (isPresent) "ON" else "OFF", retain = true)
+    }
+
+    fun publishAppForegroundState(inForeground: Boolean) {
+        val config = currentConfig ?: return
+        publishString("kl8wall/${config.deviceName}/app_foreground/state", if (inForeground) "ON" else "OFF", retain = true)
+    }
+
+    fun publishCameraStreamingState(deviceName: String, isStreaming: Boolean) {
+        publishString("kl8wall/$deviceName/camera_streaming/state", if (isStreaming) "ON" else "OFF", retain = true)
     }
 
     fun publishCameraImage(imageBytes: ByteArray) {

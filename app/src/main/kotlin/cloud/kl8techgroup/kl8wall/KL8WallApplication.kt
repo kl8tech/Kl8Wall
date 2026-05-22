@@ -58,12 +58,44 @@ class KL8WallApplication : Application() {
     var bluetoothProxyServer: BluetoothProxyServer? = null
         private set
 
+    var isAppInForeground: Boolean = false
+        private set
+
+    private var activeActivities = 0
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         settingsRepository = SettingsRepository(this)
         brightnessController = BrightnessController(this)
         ttsController = TtsController(this)
+
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityStarted(activity: android.app.Activity) {
+                if (activeActivities == 0) {
+                    isAppInForeground = true
+                    notifyForegroundState(true)
+                }
+                activeActivities++
+            }
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivityStopped(activity: android.app.Activity) {
+                activeActivities--
+                if (activeActivities == 0) {
+                    isAppInForeground = false
+                    notifyForegroundState(false)
+                }
+            }
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
+    }
+
+    private fun notifyForegroundState(inForeground: Boolean) {
+        mqttManager?.publishAppForegroundState(inForeground)
+        bluetoothProxyServer?.publishAppForegroundState(inForeground)
     }
 
     /**

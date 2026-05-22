@@ -5,6 +5,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -67,6 +68,16 @@ class BluetoothProxyServer(
         private const val KEY_SNAPSHOT = 120
         private const val KEY_SETTINGS = 121
         private const val KEY_REBOOT = 122
+
+        private const val KEY_APP_FOREGROUND = 123
+        private const val KEY_BLE_DEVICES_COUNT = 124
+        private const val KEY_BLE_DEVICES_LIST = 125
+        private const val KEY_CAMERA_STREAMING = 126
+        private const val KEY_AMBIENT_LIGHT = 127
+        private const val KEY_PROXIMITY = 128
+        private const val KEY_PRESSURE = 129
+        private const val KEY_AMBIENT_TEMP = 130
+        private const val KEY_HUMIDITY = 131
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -77,6 +88,14 @@ class BluetoothProxyServer(
 
     private val activeClients = ConcurrentHashMap.newKeySet<ClientHandler>()
     private var isScanning = false
+    
+    private data class NearbyDevice(
+        val mac: String,
+        val name: String,
+        val rssi: Int,
+        val timestamp: Long
+    )
+    private val nearbyDevices = ConcurrentHashMap<String, NearbyDevice>()
     
     private var periodicUpdateJob: Job? = null
 
@@ -133,6 +152,9 @@ class BluetoothProxyServer(
             }
             registerMdns()
             startPeriodicUpdates()
+            if (hasBluetoothPermission()) {
+                startBleScan()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start server", e)
         }
@@ -158,6 +180,9 @@ class BluetoothProxyServer(
             while (isActive) {
                 delay(10_000)
                 try {
+                    if (!isScanning && hasBluetoothPermission()) {
+                        startBleScan()
+                    }
                     val app = context as KL8WallApplication
                     val dev = app.deviceController
                     if (dev != null) {
@@ -168,10 +193,29 @@ class BluetoothProxyServer(
                         broadcastSensorState(KEY_STORAGE_FREE, dev.getStorageFreeGb())
                         broadcastSensorState(KEY_UPTIME, dev.getUptimeSeconds().toFloat())
 
+                        // New sensors
+                        broadcastSensorState(KEY_AMBIENT_LIGHT, dev.getAmbientLight())
+                        broadcastSensorState(KEY_PROXIMITY, dev.getProximity())
+                        broadcastSensorState(KEY_PRESSURE, dev.getPressure())
+                        broadcastSensorState(KEY_AMBIENT_TEMP, dev.getAmbientTemp())
+                        broadcastSensorState(KEY_HUMIDITY, dev.getHumidity())
+
                         broadcastTextSensorState(KEY_BATTERY_STATE, dev.getBatteryState())
                         broadcastTextSensorState(KEY_WIFI_SSID, dev.getWifiSsid())
                         broadcastTextSensorState(KEY_IP_ADDRESS, dev.getIpAddress())
                         broadcastTextSensorState(KEY_CURRENT_URL, dev.getCurrentUrl())
+
+                        val inForeground = app.isAppInForeground
+                        broadcastSwitchState(KEY_APP_FOREGROUND, inForeground)
+
+                        val isStreaming = app.cameraManager?.isStreamingEnabled ?: false
+                        broadcastSwitchState(KEY_CAMERA_STREAMING, isStreaming)
+
+                        val bleCount = getNearbyDevicesCount()
+                        broadcastSensorState(KEY_BLE_DEVICES_COUNT, bleCount.toFloat())
+
+                        val bleList = getNearbyDevicesList()
+                        broadcastTextSensorState(KEY_BLE_DEVICES_LIST, bleList)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in periodic updates", e)
@@ -299,6 +343,13 @@ class BluetoothProxyServer(
     private fun forwardBleAdvertisement(result: ScanResult) {
         val macString = result.device.address.replace(":", "")
         val macLong = try { macString.toLong(16) } catch (e: Exception) { 0L }
+        
+        // Track the nearby device
+        val macStr = result.device.address
+        val name = result.device.name ?: "Unknown"
+        val rssi = result.rssi
+        nearbyDevices[macStr] = NearbyDevice(macStr, name, rssi, System.currentTimeMillis())
+
         val ad = BluetoothLERawAdvertisement.newBuilder()
             .setAddress(macLong)
             .setRssi(result.rssi)
@@ -314,11 +365,48 @@ class BluetoothProxyServer(
         }
     }
 
-    // --- State Broadcasting ---
+    fun getNearbyDevicesCount(): Int {
+        pruneExpiredDevices()
+        return nearbyDevices.size
+    }
+
+    fun getNearbyDevicesList(): String {
+        pruneExpiredDevices()
+        if (nearbyDevices.isEmpty()) return "[]"
+        val jsonArray = org.json.JSONArray()
+        nearbyDevices.values.forEach { dev ->
+            val jsonObject = org.json.JSONObject().apply {
+                put("mac", dev.mac)
+                put("name", dev.name)
+                put("rssi", dev.rssi)
+            }
+            jsonArray.put(jsonObject)
+        }
+        return jsonArray.toString()
+    }
+
+    private fun pruneExpiredDevices() {
+        val now = System.currentTimeMillis()
+        val it = nearbyDevices.entries.iterator()
+        while (it.hasNext()) {
+            val entry = it.next()
+            if (now - entry.value.timestamp > 60000) { // 60 seconds expiry
+                it.remove()
+            }
+        }
+    }
+
     fun broadcastPresenceState(isPresent: Boolean) {
         val resp = BinarySensorStateResponse.newBuilder().setKey(KEY_PRESENCE).setState(isPresent).build()
         scope.launch {
             activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(21, resp) }
+        }
+    }
+
+    fun publishAppForegroundState(inForeground: Boolean) {
+        val resp = SwitchStateResponse.newBuilder().setKey(KEY_APP_FOREGROUND).setState(inForeground).build()
+        scope.launch {
+            activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(26, resp) }
         }
     }
 
@@ -335,6 +423,11 @@ class BluetoothProxyServer(
     private fun broadcastNumberState(key: Int, value: Float) {
         val resp = NumberStateResponse.newBuilder().setKey(key).setState(value).build()
         activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(50, resp) }
+    }
+
+    private fun broadcastSwitchState(key: Int, state: Boolean) {
+        val resp = SwitchStateResponse.newBuilder().setKey(key).setState(state).build()
+        activeClients.forEach { if (it.isSubscribedToStates) it.sendPacket(26, resp) }
     }
 
     private fun broadcastScreenState() {
@@ -424,7 +517,7 @@ class BluetoothProxyServer(
                         .setEsphomeVersion("2026.1.0")
                         .setModel("KL8Wall Proxy")
                         .setManufacturer("kl8techgroup")
-                        .setBluetoothProxyFeatureFlags(15)
+                        .setBluetoothProxyFeatureFlags(127)
                         .build()
                     sendPacket(10, resp)
                 }
@@ -461,6 +554,13 @@ class BluetoothProxyServer(
                     sSens("storage_free", KEY_STORAGE_FREE, "Storage Free", "GB", "data_size", SensorStateClass.STATE_CLASS_MEASUREMENT)
                     sSens("uptime", KEY_UPTIME, "Uptime", "s", "duration", SensorStateClass.STATE_CLASS_TOTAL_INCREASING)
 
+                    sSens("ambient_light", KEY_AMBIENT_LIGHT, "Ambient Light", "lx", "illuminance", SensorStateClass.STATE_CLASS_MEASUREMENT)
+                    sSens("proximity", KEY_PROXIMITY, "Proximity", "cm", "", SensorStateClass.STATE_CLASS_MEASUREMENT)
+                    sSens("pressure", KEY_PRESSURE, "Pressure", "hPa", "pressure", SensorStateClass.STATE_CLASS_MEASUREMENT)
+                    sSens("ambient_temp", KEY_AMBIENT_TEMP, "Ambient Temperature", "°C", "temperature", SensorStateClass.STATE_CLASS_MEASUREMENT)
+                    sSens("humidity", KEY_HUMIDITY, "Humidity", "%", "humidity", SensorStateClass.STATE_CLASS_MEASUREMENT)
+                    sSens("bluetooth_devices_count", KEY_BLE_DEVICES_COUNT, "Bluetooth Devices Count", "", "", SensorStateClass.STATE_CLASS_MEASUREMENT)
+
                     // Text Sensors
                     fun sTxtSens(id: String, key: Int, n: String, c: String = "") {
                         val b = ListEntitiesTextSensorResponse.newBuilder().setObjectId(id).setKey(key).setName("$name $n")
@@ -472,6 +572,15 @@ class BluetoothProxyServer(
                     sTxtSens("ip_address", KEY_IP_ADDRESS, "IP Address")
                     sTxtSens("app_version", KEY_APP_VERSION, "App Version")
                     sTxtSens("current_url", KEY_CURRENT_URL, "Current URL")
+                    sTxtSens("bluetooth_devices_list", KEY_BLE_DEVICES_LIST, "Bluetooth Devices List")
+
+                    // Switches
+                    fun sSwitch(id: String, key: Int, n: String) {
+                        val b = ListEntitiesSwitchResponse.newBuilder().setObjectId(id).setKey(key).setName("$name $n")
+                        sendPacket(14, b.build())
+                    }
+                    sSwitch("app_foreground", KEY_APP_FOREGROUND, "App Foreground")
+                    sSwitch("camera_streaming", KEY_CAMERA_STREAMING, "Camera Streaming")
 
                     // TTS
                     sendPacket(97, ListEntitiesTextResponse.newBuilder().setObjectId("tts").setKey(KEY_TTS).setName("$name TTS").build())
@@ -512,12 +621,30 @@ class BluetoothProxyServer(
                         sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_RAM_USAGE).setState(dev.getRamUsagePercent()).build())
                         sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_STORAGE_FREE).setState(dev.getStorageFreeGb()).build())
                         sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_UPTIME).setState(dev.getUptimeSeconds().toFloat()).build())
+
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_AMBIENT_LIGHT).setState(dev.getAmbientLight()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_PROXIMITY).setState(dev.getProximity()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_PRESSURE).setState(dev.getPressure()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_AMBIENT_TEMP).setState(dev.getAmbientTemp()).build())
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_HUMIDITY).setState(dev.getHumidity()).build())
                         
                         sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_BATTERY_STATE).setState(dev.getBatteryState()).build())
                         sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_WIFI_SSID).setState(dev.getWifiSsid()).build())
                         sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_IP_ADDRESS).setState(dev.getIpAddress()).build())
                         sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_APP_VERSION).setState(dev.getAppVersion()).build())
                         sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_CURRENT_URL).setState(dev.getCurrentUrl()).build())
+
+                        val bleList = getNearbyDevicesList()
+                        sendPacket(27, TextSensorStateResponse.newBuilder().setKey(KEY_BLE_DEVICES_LIST).setState(bleList).build())
+
+                        val bleCount = getNearbyDevicesCount()
+                        sendPacket(25, SensorStateResponse.newBuilder().setKey(KEY_BLE_DEVICES_COUNT).setState(bleCount.toFloat()).build())
+
+                        val inForeground = app.isAppInForeground
+                        sendPacket(26, SwitchStateResponse.newBuilder().setKey(KEY_APP_FOREGROUND).setState(inForeground).build())
+
+                        val isStreaming = app.cameraManager?.isStreamingEnabled ?: false
+                        sendPacket(26, SwitchStateResponse.newBuilder().setKey(KEY_CAMERA_STREAMING).setState(isStreaming).build())
                         
                         sendPacket(98, TextStateResponse.newBuilder().setKey(KEY_TTS).setState("").build())
                         
@@ -577,6 +704,37 @@ class BluetoothProxyServer(
                     val dev = (context as KL8WallApplication).deviceController
                     if (dev != null && req.key == KEY_TTS) {
                         dev.speak(req.state)
+                    }
+                }
+                33 -> { // SwitchCommandRequest
+                    val req = SwitchCommandRequest.parseFrom(payload)
+                    val app = context as KL8WallApplication
+                    val dev = app.deviceController
+                    if (dev != null) {
+                        when (req.key) {
+                            KEY_APP_FOREGROUND -> {
+                                if (req.state) {
+                                    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                    }
+                                    if (launchIntent != null) {
+                                        context.startActivity(launchIntent)
+                                        broadcastSwitchState(KEY_APP_FOREGROUND, true)
+                                    }
+                                } else {
+                                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                        addCategory(Intent.CATEGORY_HOME)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(homeIntent)
+                                    broadcastSwitchState(KEY_APP_FOREGROUND, false)
+                                }
+                            }
+                            KEY_CAMERA_STREAMING -> {
+                                app.cameraManager?.isStreamingEnabled = req.state
+                                broadcastSwitchState(KEY_CAMERA_STREAMING, req.state)
+                            }
+                        }
                     }
                 }
                 45 -> { // CameraImageRequest
@@ -649,10 +807,7 @@ class BluetoothProxyServer(
 
     @Synchronized
     private fun checkBleScanningNeeds() {
-        val anySubscribed = activeClients.any { it.isSubscribedToBle }
-        if (!anySubscribed) {
-            stopBleScan()
-        }
+        // Always scan by default to keep nearby devices tracking active
     }
 
     private fun readVarInt(input: InputStream): Int {

@@ -33,6 +33,19 @@ class CameraManager(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var periodicJob: Job? = null
+    private var streamingJob: Job? = null
+
+    var isStreamingEnabled = false
+        set(value) {
+            if (field != value) {
+                field = value
+                if (value) {
+                    startStreaming()
+                } else {
+                    stopStreaming()
+                }
+            }
+        }
 
     // Callback to notify face detection/presence
     var onFaceDetected: ((Boolean) -> Unit)? = null
@@ -65,8 +78,26 @@ class CameraManager(
     fun stop() {
         Log.d(TAG, "Stopping CameraManager...")
         stopPeriodicCapture()
+        stopStreaming()
         scope.cancel()
         cameraExecutor.shutdown()
+    }
+
+    private fun startStreaming() {
+        stopStreaming()
+        Log.i(TAG, "Starting front camera live streaming")
+        streamingJob = scope.launch {
+            while (isActive) {
+                takeSnapshot()
+                delay(1000L) // 1 frame per second
+            }
+        }
+    }
+
+    private fun stopStreaming() {
+        streamingJob?.cancel()
+        streamingJob = null
+        Log.i(TAG, "Stopped front camera live streaming")
     }
 
     private fun startPeriodicCapture(intervalMinutes: Int) {
