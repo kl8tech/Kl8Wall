@@ -1,6 +1,11 @@
 package cloud.kl8techgroup.kl8wall
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import cloud.kl8techgroup.kl8wall.server.DeviceController
 import cloud.kl8techgroup.kl8wall.server.KL8WallHttpServer
 import cloud.kl8techgroup.kl8wall.server.MdnsAdvertiser
@@ -82,6 +87,7 @@ class KL8WallApplication : Application() {
         private set
 
     private var activeActivities = 0
+    private var boundIpAddress: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -90,6 +96,8 @@ class KL8WallApplication : Application() {
         brightnessController = BrightnessController(this)
         ttsController = TtsController(this)
         otaManager = OtaManager(this)
+
+        registerNetworkCallback()
 
         serverScope.launch {
             delay(5000)
@@ -149,10 +157,18 @@ class KL8WallApplication : Application() {
      * blocks for several seconds.
      */
     fun startServer() {
-        if (httpServer != null) return
-
         val resolvedIp = WifiHelper.getWifiIpAddress(this)
         val ip = resolvedIp ?: if (BuildConfig.DEBUG) "127.0.0.1" else return
+
+        if (httpServer != null) {
+            if (boundIpAddress == ip) {
+                return
+            } else {
+                stopServer()
+            }
+        }
+
+        boundIpAddress = ip
         val port = settingsRepository.httpPort.value
 
         // In debug builds, bind to null (0.0.0.0) so localhost / adb forward work
@@ -171,15 +187,13 @@ class KL8WallApplication : Application() {
             android.util.Log.d("KL8Wall", "HTTP Server started on port $port. Bearer Token: ${settingsRepository.httpBearerToken.value}")
         }
 
-        if (resolvedIp != null) {
-            serverScope.launch {
-                @Suppress("TooGenericExceptionCaught")
-                try {
-                    mdnsAdvertiser = MdnsAdvertiser(this@KL8WallApplication)
-                    mdnsAdvertiser?.start(resolvedIp, port)
-                } catch (_: Exception) {
-                    // mDNS is non-critical — device is still reachable by IP
-                }
+        serverScope.launch {
+            @Suppress("TooGenericExceptionCaught")
+            try {
+                mdnsAdvertiser = MdnsAdvertiser(this@KL8WallApplication)
+                mdnsAdvertiser?.start(ip, port)
+            } catch (_: Exception) {
+                // mDNS is non-critical — device is still reachable by IP
             }
         }
     }
@@ -188,6 +202,7 @@ class KL8WallApplication : Application() {
     fun stopServer() {
         httpServer?.stop()
         httpServer = null
+        boundIpAddress = null
         serverScope.launch {
             @Suppress("TooGenericExceptionCaught")
             try {
@@ -196,6 +211,30 @@ class KL8WallApplication : Application() {
                 // Best-effort cleanup
             }
             mdnsAdvertiser = null
+        }
+    }
+
+    private fun registerNetworkCallback() {
+        try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val networkRequest = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                .build()
+
+            connectivityManager.registerNetworkCallback(networkRequest, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    android.util.Log.i("KL8Wall", "Network connection available, starting/restarting network services")
+                    serverScope.launch {
+                        if (!settingsRepository.isFirstRun.value) {
+                            startServer()
+                        }
+                        mqttManager?.reconnect()
+                    }
+                }
+            })
+        } catch (e: Exception) {
+            android.util.Log.e("KL8Wall", "Failed to register network callback", e)
         }
     }
 

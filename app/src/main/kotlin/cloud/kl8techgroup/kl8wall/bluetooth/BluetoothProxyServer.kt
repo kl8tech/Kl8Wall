@@ -244,31 +244,43 @@ class BluetoothProxyServer(
 
     private fun registerMdns() {
         scope.launch {
-            try {
-                val ipAddress = getLocalIpAddress()
-                if (ipAddress == null) {
-                    Log.w(TAG, "Cannot register mDNS: IP address is null")
-                    return@launch
+            var delayMs = 2000L
+            while (isActive) {
+                try {
+                    val ipAddress = getLocalIpAddress()
+                    if (ipAddress == null) {
+                        Log.w(TAG, "Cannot register mDNS: IP address is null, retrying in ${delayMs / 1000}s")
+                        delay(delayMs)
+                        delayMs = (delayMs * 2).coerceAtMost(30000L)
+                        continue
+                    }
+                    Log.i(TAG, "Registering mDNS for ESPHome proxy on IP: $ipAddress")
+                    jmdns = JmDNS.create(ipAddress, "kl8wall-ble")
+                    val txtRecords = mapOf(
+                        "version" to BuildConfig.VERSION_NAME,
+                        "device" to Build.MODEL,
+                        "mac" to getBluetoothMacAddress().replace(":", "")
+                    )
+                    mdnsServiceInfo = ServiceInfo.create(
+                        "_esphomelib._tcp.local.",
+                        "KL8Wall-BLE-${settingsRepository.deviceName.value}",
+                        PORT,
+                        0,
+                        0,
+                        txtRecords
+                    )
+                    jmdns?.registerService(mdnsServiceInfo)
+                    Log.i(TAG, "mDNS service registered successfully: KL8Wall-BLE-${settingsRepository.deviceName.value}")
+                    break
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to register mDNS, retrying in ${delayMs / 1000}s", e)
+                    try {
+                        jmdns?.close()
+                    } catch (_: Exception) {}
+                    jmdns = null
+                    delay(delayMs)
+                    delayMs = (delayMs * 2).coerceAtMost(30000L)
                 }
-                Log.i(TAG, "Registering mDNS for ESPHome proxy on IP: $ipAddress")
-                jmdns = JmDNS.create(ipAddress, "kl8wall-ble")
-                val txtRecords = mapOf(
-                    "version" to BuildConfig.VERSION_NAME,
-                    "device" to Build.MODEL,
-                    "mac" to getBluetoothMacAddress().replace(":", "")
-                )
-                mdnsServiceInfo = ServiceInfo.create(
-                    "_esphomelib._tcp.local.",
-                    "KL8Wall-BLE-${settingsRepository.deviceName.value}",
-                    PORT,
-                    0,
-                    0,
-                    txtRecords
-                )
-                jmdns?.registerService(mdnsServiceInfo)
-                Log.i(TAG, "mDNS service registered successfully: KL8Wall-BLE-${settingsRepository.deviceName.value}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to register mDNS", e)
             }
         }
     }

@@ -13,6 +13,18 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.io.ByteArrayInputStream
+import java.net.InetAddress
+import java.net.Socket
+import java.security.KeyStore
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
+import cloud.kl8techgroup.kl8wall.system.SslUtil
 
 class MqttManager(
     private val context: Context,
@@ -32,6 +44,7 @@ class MqttManager(
     private var currentConfig: MqttConfig? = null
     private var statusPublisherJob: Job? = null
     private var otaCollectorsJob: Job? = null
+    private var connectionJob: Job? = null
 
     data class MqttConfig(
         val enabled: Boolean,
@@ -83,6 +96,8 @@ class MqttManager(
     }
 
     private fun disconnectSync() {
+        connectionJob?.cancel()
+        connectionJob = null
         statusPublisherJob?.cancel()
         statusPublisherJob = null
         otaCollectorsJob?.cancel()
@@ -101,53 +116,98 @@ class MqttManager(
     }
 
     private fun connectAsync(config: MqttConfig) {
-        val serverUri = "tcp://${config.broker}:${config.port}"
-        val clientId = "kl8wall_${config.deviceName}_${UUID.randomUUID().toString().take(6)}"
-
-        try {
-            val client = MqttAsyncClient(serverUri, clientId, MemoryPersistence())
-            mqttClient = client
-
-            val options = MqttConnectOptions().apply {
-                isCleanSession = true
-                connectionTimeout = 10
-                keepAliveInterval = 30
-                isAutomaticReconnect = true
-                if (config.username.isNotBlank()) userName = config.username
-                if (config.password.isNotBlank()) password = config.password.toCharArray()
-            }
-
-            client.setCallback(object : MqttCallbackExtended {
-                override fun connectComplete(reconnect: Boolean, serverURI: String?) {
-                    Log.i(TAG, "MQTT connected to $serverURI")
-                    publishDiscovery(config.deviceName)
-                    subscribeToCommands(config.deviceName)
-                    startPeriodicStatusPublisher(config.deviceName)
-                    startOtaStateCollectors(config.deviceName)
-                }
-                override fun connectionLost(cause: Throwable?) {}
-                override fun messageArrived(topic: String, message: MqttMessage) {
-                    if (topic.endsWith("/audio_rx")) {
-                        onIncomingAudio(message.payload)
-                    } else if (topic.endsWith("/intercom/cmd")) {
-                        val payload = message.payload.toString(Charsets.UTF_8)
-                        onIntercomCommand(payload)
-                    } else {
-                        val payload = message.payload.toString(Charsets.UTF_8)
-                        handleCommand(topic, payload, config.deviceName)
+        connectionJob?.cancel()
+        connectionJob = scope.launch {
+            var delayMs = 2000L
+            while (isActive) {
+                try {
+                    val brokerAddress = config.broker.trim()
+                    val serverUri = when {
+                        brokerAddress.startsWith("tcp://") ||
+                        brokerAddress.startsWith("ssl://") ||
+                        brokerAddress.startsWith("ws://") ||
+                        brokerAddress.startsWith("wss://") -> {
+                            val schemeEnd = brokerAddress.indexOf("://") + 3
+                            if (brokerAddress.indexOf(":", schemeEnd) != -1) {
+                                brokerAddress
+                            } else {
+                                "$brokerAddress:${config.port}"
+                            }
+                        }
+                        else -> {
+                            val scheme = if (config.port == 8883 || config.port == 8884) "ssl" else "tcp"
+                            "$scheme://$brokerAddress:${config.port}"
+                        }
                     }
-                }
-                override fun deliveryComplete(token: IMqttDeliveryToken?) {}
-            })
+                    val clientId = "kl8wall_${config.deviceName}_${UUID.randomUUID().toString().take(6)}"
+                    val client = MqttAsyncClient(serverUri, clientId, MemoryPersistence())
+                    mqttClient = client
 
-            client.connect(options, null, object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken?) {}
-                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    Log.e(TAG, "MQTT connection failed", exception)
+                    val options = MqttConnectOptions().apply {
+                        isCleanSession = true
+                        connectionTimeout = 10
+                        keepAliveInterval = 30
+                        isAutomaticReconnect = true
+                        if (config.username.isNotBlank()) userName = config.username
+                        if (config.password.isNotBlank()) password = config.password.toCharArray()
+
+                        if (serverUri.startsWith("ssl://") || serverUri.startsWith("wss://")) {
+                            try {
+                                socketFactory = SslUtil.tlsSocketFactory
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to initialize custom TLSSocketFactory for SSL", e)
+                            }
+                        }
+                    }
+
+                    client.setCallback(object : MqttCallbackExtended {
+                        override fun connectComplete(reconnect: Boolean, serverURI: String?) {
+                            Log.i(TAG, "MQTT connected to $serverURI")
+                            publishDiscovery(config.deviceName)
+                            subscribeToCommands(config.deviceName)
+                            startPeriodicStatusPublisher(config.deviceName)
+                            startOtaStateCollectors(config.deviceName)
+                        }
+                        override fun connectionLost(cause: Throwable?) {
+                            Log.w(TAG, "MQTT connection lost: ${cause?.message}")
+                        }
+                        override fun messageArrived(topic: String, message: MqttMessage) {
+                            if (topic.endsWith("/audio_rx")) {
+                                onIncomingAudio(message.payload)
+                            } else if (topic.endsWith("/intercom/cmd")) {
+                                val payload = message.payload.toString(Charsets.UTF_8)
+                                onIntercomCommand(payload)
+                            } else {
+                                val payload = message.payload.toString(Charsets.UTF_8)
+                                handleCommand(topic, payload, config.deviceName)
+                            }
+                        }
+                        override fun deliveryComplete(token: IMqttDeliveryToken?) {}
+                    })
+
+                    val deferred = CompletableDeferred<Boolean>()
+                    client.connect(options, null, object : IMqttActionListener {
+                        override fun onSuccess(asyncActionToken: IMqttToken?) {
+                            deferred.complete(true)
+                        }
+                        override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                            deferred.completeExceptionally(exception ?: Exception("Unknown connection error"))
+                        }
+                    })
+
+                    deferred.await()
+                    Log.i(TAG, "MQTT Connection established successfully")
+                    break
+                } catch (e: Exception) {
+                    Log.e(TAG, "MQTT connection attempt failed, retrying in ${delayMs / 1000}s", e)
+                    try {
+                        mqttClient?.close()
+                    } catch (_: Exception) {}
+                    mqttClient = null
+                    delay(delayMs)
+                    delayMs = (delayMs * 2).coerceAtMost(30000L)
                 }
-            })
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize MQTT client", e)
+            }
         }
     }
 
@@ -622,5 +682,12 @@ class MqttManager(
             put("update_percentage", progress ?: JSONObject.NULL)
         }
         publishString("kl8wall/$deviceName/update/state", updateStateJson.toString(), true)
+    }
+
+    fun reconnect() {
+        val config = currentConfig ?: return
+        if (!config.enabled || config.broker.isBlank()) return
+        Log.i(TAG, "Forcing MQTT reconnect...")
+        connectAsync(config)
     }
 }

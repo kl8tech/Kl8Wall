@@ -8,6 +8,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 
@@ -27,6 +28,9 @@ class KioskWebView @JvmOverloads constructor(
     private val gestureDetector = GestureDetector(context, GestureListener())
 
     init {
+        // Set WebView background to match the app's dark theme (#0F1419)
+        // to prevent a stark white background/flash during initial page load.
+        setBackgroundColor(android.graphics.Color.parseColor("#0F1419"))
         applyHardeningFlags()
         applyKioskBehavior()
     }
@@ -115,6 +119,15 @@ class KioskWebView @JvmOverloads constructor(
             setSupportZoom(false)
             builtInZoomControls = false
             displayZoomControls = false
+
+            // Force dark mode if supported by the WebView on the device.
+            // On older platforms (like Android 7) with updated WebView engines, this forces dark theme.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+                WebSettingsCompat.setForceDark(this, WebSettingsCompat.FORCE_DARK_ON)
+            }
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(this, true)
+            }
         }
     }
 

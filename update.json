@@ -1,6 +1,6 @@
 {
-  "version": "2.0.28",
-  "versionCode": 30,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.28/kl8wall-v30.apk",
-  "changelog": "Release v2.0.28 - Added update progress percentage and in_progress reporting to Home Assistant."
+  "version": "2.0.32",
+  "versionCode": 34,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.32/kl8wall-v34.apk",
+  "changelog": "Release v2.0.32 - Prevent WebView white background flash and force dark theme support on Android 7."
 }

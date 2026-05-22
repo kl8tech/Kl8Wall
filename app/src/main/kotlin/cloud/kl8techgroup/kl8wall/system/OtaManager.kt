@@ -82,6 +82,9 @@ class OtaManager(private val context: Context) {
             Log.d(TAG, "Checking for updates at $UPDATE_URL...")
             val url = URL(UPDATE_URL)
             val connection = url.openConnection() as HttpURLConnection
+            if (connection is javax.net.ssl.HttpsURLConnection) {
+                connection.sslSocketFactory = SslUtil.tlsSocketFactory
+            }
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
             connection.requestMethod = "GET"
@@ -138,6 +141,9 @@ class OtaManager(private val context: Context) {
             Log.i(TAG, "Downloading APK from $apkUrl...")
             val url = URL(apkUrl)
             val connection = url.openConnection() as HttpURLConnection
+            if (connection is javax.net.ssl.HttpsURLConnection) {
+                connection.sslSocketFactory = SslUtil.tlsSocketFactory
+            }
             connection.connectTimeout = 15000
             connection.readTimeout = 30000
 
