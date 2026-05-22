@@ -707,18 +707,5 @@ private fun KioskWebViewContainer(
 }
 
 private fun buildStartUrl(baseUrl: String, tokenProvider: () -> String): String {
-    if (baseUrl.isBlank()) return ""
-    val token = tokenProvider()
-    if (token.isBlank()) return baseUrl
-
-    return try {
-        val uri = android.net.Uri.parse(baseUrl)
-        val builder = uri.buildUpon()
-        if (uri.getQueryParameter("external_auth") == null) {
-            builder.appendQueryParameter("external_auth", "1")
-        }
-        builder.build().toString()
-    } catch (e: Exception) {
-        baseUrl
-    }
+    return baseUrl
 }
