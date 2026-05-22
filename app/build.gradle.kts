@@ -38,7 +38,11 @@ android {
         outputs.all {
             val apkOutput = this as? com.android.build.gradle.api.ApkVariantOutput
             if (apkOutput != null) {
-                apkOutput.outputFileName = "kl8wall-${buildType.name}.apk"
+                if (buildType.name == "release") {
+                    apkOutput.outputFileName = "kl8wall-v${versionCode}.apk"
+                } else {
+                    apkOutput.outputFileName = "kl8wall-v${versionCode}-${buildType.name}.apk"
+                }
             }
         }
     }

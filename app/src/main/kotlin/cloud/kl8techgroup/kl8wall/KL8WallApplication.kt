@@ -12,10 +12,13 @@ import cloud.kl8techgroup.kl8wall.mqtt.MqttManager
 import cloud.kl8techgroup.kl8wall.camera.CameraManager
 import cloud.kl8techgroup.kl8wall.system.PresenceSensorManager
 import cloud.kl8techgroup.kl8wall.bluetooth.BluetoothProxyServer
+import cloud.kl8techgroup.kl8wall.system.OtaManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import android.graphics.Bitmap
@@ -45,9 +48,13 @@ class KL8WallApplication : Application() {
     lateinit var ttsController: TtsController
         private set
 
+    /** Over-the-air update manager. */
+    lateinit var otaManager: OtaManager
+        private set
+
     private var httpServer: KL8WallHttpServer? = null
     private var mdnsAdvertiser: MdnsAdvertiser? = null
-    private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /**
      * Activity-scoped device controller for HTTP API commands.
@@ -80,6 +87,15 @@ class KL8WallApplication : Application() {
         settingsRepository = SettingsRepository(this)
         brightnessController = BrightnessController(this)
         ttsController = TtsController(this)
+        otaManager = OtaManager(this)
+
+        serverScope.launch {
+            delay(5000)
+            while (isActive) {
+                otaManager.checkForUpdates(forceInstall = false)
+                delay(12 * 60 * 60 * 1000) // check every 12 hours
+            }
+        }
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}

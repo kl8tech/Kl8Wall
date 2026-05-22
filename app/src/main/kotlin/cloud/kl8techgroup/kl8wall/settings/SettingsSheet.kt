@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -104,6 +105,8 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
             MqttSection(viewModel)
             SettingsDivider()
             SensorsProxySection(viewModel)
+            SettingsDivider()
+            OtaSection()
             SettingsDivider()
             DeveloperSection()
             Spacer(modifier = Modifier.height(16.dp))
@@ -943,6 +946,100 @@ private fun SectionHeader(title: String) {
 @Composable
 private fun SettingsDivider() {
     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+}
+
+@Composable
+private fun OtaSection() {
+    val context = LocalContext.current
+    val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+    val ota = app?.otaManager ?: return
+
+    val updateAvailable by ota.updateAvailable.collectAsState()
+    val latestVersion by ota.latestVersion.collectAsState()
+    val latestVersionCode by ota.latestVersionCode.collectAsState()
+    val isUpdating by ota.isUpdating.collectAsState()
+    val updateError by ota.updateError.collectAsState()
+
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        SectionHeader("OTA Updates")
+
+        Text(
+            text = "Current Version: ${ota.currentVersionName} (code ${ota.currentVersionCode})",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        if (updateAvailable) {
+            Text(
+                text = "Update Available: v$latestVersion (code $latestVersionCode)",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        } else {
+            Text(
+                text = "Your app is up to date.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        if (updateError != null) {
+            Text(
+                text = "Error: $updateError",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    scope.launch {
+                        ota.checkForUpdates(false)
+                    }
+                },
+                enabled = !isUpdating,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Check for Updates")
+            }
+
+            if (updateAvailable) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            ota.triggerUpdate()
+                        }
+                    },
+                    enabled = !isUpdating,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (isUpdating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Install Update")
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

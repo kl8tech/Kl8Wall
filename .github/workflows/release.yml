@@ -1,0 +1,71 @@
+name: Build and Release KL8Wall
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Extract Versions and Build Metadata
+        id: meta
+        run: |
+          VERSION_CODE=$(grep "versionCode =" app/build.gradle.kts | tr -d ' ' | cut -d'=' -f2)
+          VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | tr -d ' ' | tr -d '"' | cut -d'=' -f2)
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create or Update update.json
+        run: |
+          cat <<EOF > update.json
+          {
+            "version": "${{ steps.meta.outputs.VERSION_NAME }}",
+            "versionCode": ${{ steps.meta.outputs.VERSION_CODE }},
+            "url": "https://github.com/kl8tech/Kl8Wall/releases/download/${{ github.ref_name }}/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk",
+            "changelog": "Release ${{ github.ref_name }} - Please see GitHub release notes for details."
+          }
+          EOF
+
+      - name: Commit and Push update.json
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add update.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update OTA metadata for ${{ github.ref_name }}"
+          git push origin HEAD:main
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: app/build/outputs/apk/release/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,6 +29,7 @@ class MqttManager(
     var onSnapshotTrigger: (() -> Unit)? = null
     private var currentConfig: MqttConfig? = null
     private var statusPublisherJob: Job? = null
+    private var otaCollectorsJob: Job? = null
 
     data class MqttConfig(
         val enabled: Boolean,
@@ -82,6 +83,8 @@ class MqttManager(
     private fun disconnectSync() {
         statusPublisherJob?.cancel()
         statusPublisherJob = null
+        otaCollectorsJob?.cancel()
+        otaCollectorsJob = null
         val client = mqttClient
         if (client != null) {
             try {
@@ -118,6 +121,7 @@ class MqttManager(
                     publishDiscovery(config.deviceName)
                     subscribeToCommands(config.deviceName)
                     startPeriodicStatusPublisher(config.deviceName)
+                    startOtaStateCollectors(config.deviceName)
                 }
                 override fun connectionLost(cause: Throwable?) {}
                 override fun messageArrived(topic: String, message: MqttMessage) {
@@ -284,6 +288,36 @@ class MqttManager(
         }
         pubSwitch("app_foreground", "App Foreground")
         pubSwitch("camera_streaming", "Camera Streaming")
+
+        // Update Entity Discovery
+        val updateEntityConfig = JSONObject().apply {
+            put("name", "App Update")
+            put("unique_id", "kl8wall_${deviceName}_update")
+            put("state_topic", "kl8wall/$deviceName/update/state")
+            put("command_topic", "kl8wall/$deviceName/update/cmd")
+            put("payload_install", "install")
+            put("device", deviceJson)
+        }
+        publishString("homeassistant/update/kl8wall_$deviceName/update/config", updateEntityConfig.toString(), retain = true)
+
+        // Binary Sensors for Update State
+        fun pubBinarySens(id: String, name: String, devClass: String = "") {
+            val cfg = JSONObject().apply {
+                put("name", name)
+                put("unique_id", "kl8wall_${deviceName}_$id")
+                put("state_topic", "kl8wall/$deviceName/$id/state")
+                if (devClass.isNotEmpty()) put("device_class", devClass)
+                put("payload_on", "ON")
+                put("payload_off", "OFF")
+                put("device", deviceJson)
+            }
+            publishString("homeassistant/binary_sensor/kl8wall_$deviceName/$id/config", cfg.toString(), retain = true)
+        }
+        pubBinarySens("update_available", "Update Available", "update")
+        pubBinarySens("updating", "App Updating", "running")
+
+        pubBtn("check_update", "Check Update")
+        pubBtn("trigger_update", "Install Update")
     }
 
     private fun subscribeToCommands(deviceName: String) {
@@ -301,7 +335,10 @@ class MqttManager(
             "kl8wall/$deviceName/tts_volume/cmd",
             "kl8wall/$deviceName/app_foreground/cmd",
             "kl8wall/$deviceName/camera_streaming/cmd",
-            "kl8wall/$deviceName/screenshot/cmd"
+            "kl8wall/$deviceName/screenshot/cmd",
+            "kl8wall/$deviceName/check_update/cmd",
+            "kl8wall/$deviceName/trigger_update/cmd",
+            "kl8wall/$deviceName/update/cmd"
         )
         val qos = IntArray(topics.size) { 1 }
 
@@ -388,6 +425,26 @@ class MqttManager(
                                 if (bytes != null) {
                                     publishBytes("kl8wall/$deviceName/screenshot/image", bytes, retain = false)
                                 }
+                            }
+                        }
+                    }
+                    "kl8wall/$deviceName/check_update/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        app?.serverScope?.launch {
+                            app.otaManager.checkForUpdates(false)
+                        }
+                    }
+                    "kl8wall/$deviceName/trigger_update/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        app?.serverScope?.launch {
+                            app.otaManager.triggerUpdate()
+                        }
+                    }
+                    "kl8wall/$deviceName/update/cmd" -> {
+                        if (payload.lowercase() == "install") {
+                            val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                            app?.serverScope?.launch {
+                                app.otaManager.triggerUpdate()
                             }
                         }
                     }
@@ -498,5 +555,50 @@ class MqttManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error publishing to topic $topic", e)
         }
+    }
+
+    private fun startOtaStateCollectors(deviceName: String) {
+        otaCollectorsJob?.cancel()
+        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication ?: return
+        val ota = app.otaManager
+
+        otaCollectorsJob = scope.launch {
+            launch {
+                ota.updateAvailable.collect {
+                    publishOtaStates(deviceName)
+                }
+            }
+            launch {
+                ota.isUpdating.collect {
+                    publishOtaStates(deviceName)
+                }
+            }
+            launch {
+                ota.latestVersion.collect {
+                    publishOtaStates(deviceName)
+                }
+            }
+        }
+    }
+
+    private fun publishOtaStates(deviceName: String) {
+        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication ?: return
+        val ota = app.otaManager
+        val available = ota.updateAvailable.value
+        val updating = ota.isUpdating.value
+        val latestVer = ota.latestVersion.value
+        val currentVer = ota.currentVersionName
+
+        publishString("kl8wall/$deviceName/update_available/state", if (available) "ON" else "OFF", true)
+        publishString("kl8wall/$deviceName/updating/state", if (updating) "ON" else "OFF", true)
+
+        val updateStateJson = JSONObject().apply {
+            put("installed_version", currentVer)
+            put("latest_version", if (available && latestVer.isNotEmpty()) latestVer else currentVer)
+            put("title", "KL8Wall")
+            put("release_url", "https://github.com/kl8tech/Kl8Wall/releases/latest")
+            put("update_percentage", if (updating) JSONObject.NULL else JSONObject.NULL)
+        }
+        publishString("kl8wall/$deviceName/update/state", updateStateJson.toString(), true)
     }
 }

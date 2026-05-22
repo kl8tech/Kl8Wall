@@ -6,6 +6,8 @@ import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /**
  * Embedded HTTP server for remote device control.
@@ -69,6 +71,9 @@ class KL8WallHttpServer(
         "POST /api/tts" -> withController { handleTts(it, session) }
         "POST /api/tts/stop" -> withController { handleTtsStop(it) }
         "GET /api/screenshot" -> handleScreenshot()
+        "POST /api/update/check" -> handleCheckUpdate()
+        "POST /api/update/install" -> handleInstallUpdate()
+        "GET /api/update/status" -> handleUpdateStatus()
         else -> errorResponse(Response.Status.NOT_FOUND, "Not found")
     }
 
@@ -207,6 +212,40 @@ class KL8WallHttpServer(
         response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         response.addHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
         return response
+    }
+
+    private fun handleCheckUpdate(): Response {
+        val app = KL8WallApplication.instance
+        app.otaManager.let { ota ->
+            app.serverScope.launch {
+                ota.checkForUpdates(false)
+            }
+        }
+        return jsonResponse(Response.Status.OK, "{\"success\":true}")
+    }
+
+    private fun handleInstallUpdate(): Response {
+        val app = KL8WallApplication.instance
+        app.otaManager.let { ota ->
+            app.serverScope.launch {
+                ota.triggerUpdate()
+            }
+        }
+        return jsonResponse(Response.Status.OK, "{\"success\":true}")
+    }
+
+    private fun handleUpdateStatus(): Response {
+        val ota = KL8WallApplication.instance.otaManager
+        val statusObj = JSONObject().apply {
+            put("update_available", ota.updateAvailable.value)
+            put("current_version_name", ota.currentVersionName)
+            put("current_version_code", ota.currentVersionCode)
+            put("latest_version_name", ota.latestVersion.value)
+            put("latest_version_code", ota.latestVersionCode.value)
+            put("is_updating", ota.isUpdating.value)
+            put("error", ota.updateError.value ?: JSONObject.NULL)
+        }
+        return jsonResponse(Response.Status.OK, statusObj.toString())
     }
 
     companion object {
