@@ -7,7 +7,6 @@ import android.security.keystore.KeyProperties
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import java.security.SecureRandom
-import java.util.Base64
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -254,7 +253,7 @@ class SettingsRepository(context: Context) {
     private fun generateAndStoreHttpBearerToken() {
         val bytes = ByteArray(TOKEN_BYTE_LENGTH)
         SecureRandom().nextBytes(bytes)
-        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        val token = android.util.Base64.encodeToString(bytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
         prefs.edit().putString(KEY_HTTP_BEARER_TOKEN, token).apply()
         _httpBearerToken.value = token
     }
