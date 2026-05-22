@@ -88,14 +88,21 @@ class MainActivity : ComponentActivity() {
     private var kioskWebView: KioskWebView? = null
     private var clearCacheRequested = false
 
+    private var isRequestingPermissions = false
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
+        isRequestingPermissions = false
         val cameraGranted = permissions[android.Manifest.permission.CAMERA] ?: false
         Log.i("MainActivity", "Permissions callback: CAMERA granted=$cameraGranted")
         if (cameraGranted) {
             val app = application as? KL8WallApplication
             app?.cameraManager?.start()
+        }
+        val app = application as? KL8WallApplication
+        if (app != null && !app.settingsRepository.isFirstRun.value) {
+            kioskLockManager.lock(this)
         }
     }
 
@@ -126,7 +133,13 @@ class MainActivity : ComponentActivity() {
             permissions.add(android.Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
         }
-        requestPermissionLauncher.launch(permissions.toTypedArray())
+        val missingPermissions = permissions.filter {
+            androidx.core.content.ContextCompat.checkSelfPermission(this, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missingPermissions.isNotEmpty()) {
+            isRequestingPermissions = true
+            requestPermissionLauncher.launch(missingPermissions.toTypedArray())
+        }
 
         if (!Settings.System.canWrite(this)) {
             try {
@@ -226,8 +239,10 @@ class MainActivity : ComponentActivity() {
         val app = application as KL8WallApplication
         val devController = createDeviceController()
         app.deviceController = devController
-        if (!app.settingsRepository.isFirstRun.value) {
+        if (!app.settingsRepository.isFirstRun.value && !isRequestingPermissions) {
             kioskLockManager.lock(this)
+        }
+        if (!app.settingsRepository.isFirstRun.value) {
             app.startServer()
             app.startServices(this, devController)
         }
