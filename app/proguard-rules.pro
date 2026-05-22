@@ -10,6 +10,11 @@
     public static int wtf(...);
 }
 
+# Keep Javascript interfaces for WebView bridge
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
 # Keep kotlinx.serialization
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
