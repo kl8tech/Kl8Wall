@@ -36,22 +36,8 @@ class KioskWebView @JvmOverloads constructor(
         setupCookies()
         setupUserAgent(startUrl)
 
-        val externalApp = ExternalApp(this)
-        addJavascriptInterface(externalApp, "externalApp")
-
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            val originRules = getOriginRules(startUrl, allowedHosts)
-            if (originRules.isNotEmpty()) {
-                try {
-                    WebViewCompat.addWebMessageListener(this, "externalAppV2", originRules) { _, message, _, _, _ ->
-                        externalApp.handleV2Message(message.data)
-                    }
-                    Log.d("KioskWebView", "Registered externalAppV2 listener with rules: $originRules")
-                } catch (e: Exception) {
-                    Log.e("KioskWebView", "Failed to register externalAppV2 listener", e)
-                }
-            }
-        }
+        // Removed ExternalApp injection. We don't want HA to attempt Companion App
+        // external auth because we are using standard web auth and MQTT for sensors.
     }
 
     private fun getOriginRules(startUrl: String, allowedHosts: Set<String>): Set<String> {
