@@ -577,7 +577,7 @@ class BluetoothProxyServer(
                     // Switches
                     fun sSwitch(id: String, key: Int, n: String) {
                         val b = ListEntitiesSwitchResponse.newBuilder().setObjectId(id).setKey(key).setName("$name $n")
-                        sendPacket(14, b.build())
+                        sendPacket(17, b.build())
                     }
                     sSwitch("app_foreground", KEY_APP_FOREGROUND, "App Foreground")
                     sSwitch("camera_streaming", KEY_CAMERA_STREAMING, "Camera Streaming")

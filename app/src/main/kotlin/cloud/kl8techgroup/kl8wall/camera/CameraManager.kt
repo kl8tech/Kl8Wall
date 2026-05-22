@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.collectLatest
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class CameraManager(
     private val context: Context,
@@ -34,6 +36,10 @@ class CameraManager(
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var periodicJob: Job? = null
     private var streamingJob: Job? = null
+
+    private var isBound = false
+    private var activeImageCapture: ImageCapture? = null
+    private var activeCameraProvider: ProcessCameraProvider? = null
 
     var isStreamingEnabled = false
         set(value) {
@@ -87,9 +93,14 @@ class CameraManager(
         stopStreaming()
         Log.i(TAG, "Starting front camera live streaming")
         streamingJob = scope.launch {
-            while (isActive) {
-                takeSnapshot()
-                delay(1000L) // 1 frame per second
+            try {
+                ensureCameraBound()
+                while (isActive) {
+                    captureFrame()
+                    delay(1000L) // 1 frame per second
+                }
+            } finally {
+                checkCameraRelease()
             }
         }
     }
@@ -98,6 +109,7 @@ class CameraManager(
         streamingJob?.cancel()
         streamingJob = null
         Log.i(TAG, "Stopped front camera live streaming")
+        checkCameraRelease()
     }
 
     private fun startPeriodicCapture(intervalMinutes: Int) {
@@ -108,9 +120,14 @@ class CameraManager(
         periodicJob = scope.launch {
             // Wait 1 minute before first snapshot to allow system to settle
             delay(60 * 1000)
-            while (isActive) {
-                takeSnapshot()
-                delay(intervalMinutes * 60 * 1000L)
+            try {
+                ensureCameraBound()
+                while (isActive) {
+                    captureFrame()
+                    delay(intervalMinutes * 60 * 1000L)
+                }
+            } finally {
+                checkCameraRelease()
             }
         }
     }
@@ -118,6 +135,83 @@ class CameraManager(
     private fun stopPeriodicCapture() {
         periodicJob?.cancel()
         periodicJob = null
+        checkCameraRelease()
+    }
+
+    private suspend fun ensureCameraBound(): ImageCapture? = withContext(Dispatchers.Main) {
+        if (activeImageCapture != null && isBound) {
+            return@withContext activeImageCapture
+        }
+        val provider = activeCameraProvider ?: suspendCancellableCoroutine { continuation ->
+            val future = ProcessCameraProvider.getInstance(context)
+            future.addListener({
+                try {
+                    val p = future.get()
+                    activeCameraProvider = p
+                    continuation.resume(p)
+                } catch (e: Exception) {
+                    continuation.resumeWithException(e)
+                }
+            }, ContextCompat.getMainExecutor(context))
+        }
+
+        try {
+            provider.unbindAll()
+            @Suppress("DEPRECATION")
+            val imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setTargetResolution(android.util.Size(1024, 768))
+                .build()
+            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+            provider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture)
+            activeImageCapture = imageCapture
+            isBound = true
+            imageCapture
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to bind camera use case", e)
+            null
+        }
+    }
+
+    private fun unbindCamera() {
+        ContextCompat.getMainExecutor(context).execute {
+            try {
+                activeCameraProvider?.unbindAll()
+                activeImageCapture = null
+                isBound = false
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unbinding camera", e)
+            }
+        }
+    }
+
+    private suspend fun captureFrame() = suspendCancellableCoroutine<Unit> { continuation ->
+        val imageCapture = activeImageCapture
+        if (imageCapture == null || !isBound) {
+            continuation.resume(Unit)
+            return@suspendCancellableCoroutine
+        }
+        imageCapture.takePicture(
+            cameraExecutor,
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureSuccess(imageProxy: ImageProxy) {
+                    Log.i(TAG, "Frame captured successfully")
+                    processImageProxy(imageProxy)
+                    continuation.resume(Unit)
+                }
+
+                override fun onError(exception: androidx.camera.core.ImageCaptureException) {
+                    Log.e(TAG, "Frame capture failed", exception)
+                    continuation.resume(Unit)
+                }
+            }
+        )
+    }
+
+    private fun checkCameraRelease() {
+        if (!isStreamingEnabled && periodicJob == null) {
+            unbindCamera()
+        }
     }
 
     fun takeSnapshot() {
@@ -125,65 +219,12 @@ class CameraManager(
             Log.w(TAG, "Camera permission not granted. Cannot take snapshot.")
             return
         }
-
-        cameraExecutor.execute {
-            Log.d(TAG, "Initiating CameraX capture...")
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener({
-                try {
-                    val cameraProvider = cameraProviderFuture.get()
-                    val imageCapture = ImageCapture.Builder()
-                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                        .build()
-
-                    val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
-                    // Bind use cases to lifecycle (Main thread required for binding)
-                    ContextCompat.getMainExecutor(context).execute {
-                        try {
-                            cameraProvider.unbindAll()
-                            cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture)
-
-                            // Take picture
-                            imageCapture.takePicture(
-                                cameraExecutor,
-                                object : ImageCapture.OnImageCapturedCallback() {
-                                    override fun onCaptureSuccess(imageProxy: ImageProxy) {
-                                        Log.i(TAG, "Image captured successfully")
-                                        processImageProxy(imageProxy)
-                                        
-                                        // Immediately unbind to free camera hardware
-                                        ContextCompat.getMainExecutor(context).execute {
-                                            try {
-                                                cameraProvider.unbindAll()
-                                            } catch (e: Exception) {
-                                                Log.e(TAG, "Error unbinding camera after capture", e)
-                                            }
-                                        }
-                                    }
-
-                                    override fun onError(exception: androidx.camera.core.ImageCaptureException) {
-                                        Log.e(TAG, "Image capture failed", exception)
-                                        // Unbind on error too
-                                        ContextCompat.getMainExecutor(context).execute {
-                                            try {
-                                                cameraProvider.unbindAll()
-                                            } catch (e: Exception) {
-                                                Log.e(TAG, "Error unbinding camera after error", e)
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to bind or capture image", e)
-                        }
-                    }
-
-                } catch (e: Exception) {
-                    Log.e(TAG, "ProcessCameraProvider initialization failed", e)
-                }
-            }, ContextCompat.getMainExecutor(context))
+        scope.launch {
+            val bound = ensureCameraBound() != null
+            if (bound) {
+                captureFrame()
+                checkCameraRelease()
+            }
         }
     }
 
