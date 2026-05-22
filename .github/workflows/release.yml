@@ -58,6 +58,10 @@ jobs:
           git diff --quiet && git diff --staged --quiet || git commit -m "Update OTA metadata for ${{ github.ref_name }}"
           git push origin HEAD:main
 
+      - name: Prepare Release Artifacts
+        run: |
+          cp app/build/outputs/apk/release/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk app/build/outputs/apk/release/kl8wall-release.apk
+
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -66,6 +70,8 @@ jobs:
           name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
-          files: app/build/outputs/apk/release/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk
+          files: |
+            app/build/outputs/apk/release/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk
+            app/build/outputs/apk/release/kl8wall-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
