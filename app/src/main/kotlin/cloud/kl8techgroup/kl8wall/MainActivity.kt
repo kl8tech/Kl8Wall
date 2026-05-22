@@ -274,7 +274,8 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun navigate(url: String) {
-                mainHandler.post { kioskWebView?.loadUrl(url) }
+                val finalUrl = buildStartUrl(url) { app.settingsRepository.getHaToken() }
+                mainHandler.post { kioskWebView?.loadUrl(finalUrl) }
             }
 
             override fun reload() {
@@ -460,6 +461,8 @@ private fun KL8WallScreen(
     onWebViewAvailable: (KioskWebView) -> Unit,
     onPageLoaded: (String) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val settingsRepo = (context.applicationContext as KL8WallApplication).settingsRepository
     val isFirstRun by viewModel.isFirstRun.collectAsState()
     val startUrl by viewModel.startUrl.collectAsState()
     val allowedHosts by viewModel.allowedHosts.collectAsState()
@@ -556,8 +559,9 @@ private fun KL8WallScreen(
                 onDismiss = {
                     showSettings = false
                     val newUrl = viewModel.startUrl.value
-                    if (newUrl.isNotBlank() && newUrl != currentUrl) {
-                        webView?.loadUrl(newUrl)
+                    val finalUrl = buildStartUrl(newUrl) { settingsRepo.getHaToken() }
+                    if (finalUrl.isNotBlank() && finalUrl != currentUrl) {
+                        webView?.loadUrl(finalUrl)
                     }
                 }
             )
@@ -603,17 +607,36 @@ private fun KioskWebViewContainer(
 
                 onWebViewCreated(this)
 
-                if (startUrl.isNotBlank()) {
-                    loadUrl(startUrl)
+                val finalUrl = buildStartUrl(startUrl) { settingsRepo.getHaToken() }
+                if (finalUrl.isNotBlank()) {
+                    loadUrl(finalUrl)
                 }
             }
         },
         update = { view ->
             val currentViewUrl = view.url ?: ""
             if (startUrl.isNotBlank() && currentViewUrl.isEmpty()) {
-                view.loadUrl(startUrl)
+                val finalUrl = buildStartUrl(startUrl) { settingsRepo.getHaToken() }
+                view.loadUrl(finalUrl)
             }
         },
         modifier = Modifier.fillMaxSize()
     )
+}
+
+private fun buildStartUrl(baseUrl: String, tokenProvider: () -> String): String {
+    if (baseUrl.isBlank()) return ""
+    val token = tokenProvider()
+    if (token.isBlank()) return baseUrl
+
+    return try {
+        val uri = android.net.Uri.parse(baseUrl)
+        val builder = uri.buildUpon()
+        if (uri.getQueryParameter("external_auth") == null) {
+            builder.appendQueryParameter("external_auth", "1")
+        }
+        builder.build().toString()
+    } catch (e: Exception) {
+        baseUrl
+    }
 }

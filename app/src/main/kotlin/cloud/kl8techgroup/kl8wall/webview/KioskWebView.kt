@@ -26,6 +26,28 @@ class KioskWebView @JvmOverloads constructor(
     init {
         applyHardeningFlags()
         applyKioskBehavior()
+        setupCookies()
+        setupUserAgent()
+        registerJsBridge()
+    }
+
+    private fun setupCookies() {
+        android.webkit.CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(this@KioskWebView, true)
+        }
+    }
+
+    private fun setupUserAgent() {
+        val defaultUserAgent = settings.userAgentString
+        if (!defaultUserAgent.contains("HomeAssistant/Android")) {
+            settings.userAgentString = "$defaultUserAgent HomeAssistant/Android"
+        }
+    }
+
+    @SuppressLint("JavascriptInterface")
+    private fun registerJsBridge() {
+        addJavascriptInterface(ExternalApp(this), "externalApp")
     }
 
     @SuppressLint("SetJavaScriptEnabled")
