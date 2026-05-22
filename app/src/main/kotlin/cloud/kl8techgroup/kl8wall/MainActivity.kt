@@ -653,11 +653,15 @@ private fun KioskWebViewContainer(
                     webChromeClient = object : android.webkit.WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
                             consoleMessage?.let {
+                                val msg = it.message()
+                                val line = it.lineNumber()
+                                val src = it.sourceId() ?: "unknown"
                                 if (it.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
-                                    val msg = it.message()
                                     if (!msg.contains("favicon")) {
-                                        onError(-1, "JS: $msg (Line ${it.lineNumber()})")
+                                        android.util.Log.e("JS-Console", "JS Error: $msg (Line $line of $src)")
                                     }
+                                } else {
+                                    android.util.Log.d("JS-Console", "JS Log: $msg (Line $line of $src)")
                                 }
                             }
                             return super.onConsoleMessage(consoleMessage)

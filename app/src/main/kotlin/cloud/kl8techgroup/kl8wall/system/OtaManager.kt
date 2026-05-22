@@ -91,8 +91,8 @@ class OtaManager(private val context: Context) {
             val responseText = connection.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(responseText)
             val serverVersionCode = json.getInt("versionCode")
-            val serverVersionName = json.getString("versionName")
-            val apkUrl = json.getString("apkUrl")
+            val serverVersionName = if (json.has("version")) json.getString("version") else json.getString("versionName")
+            val apkUrl = if (json.has("url")) json.getString("url") else json.getString("apkUrl")
 
             Log.i(TAG, "Server version info: code=$serverVersionCode, name=$serverVersionName, currentCode=$currentVersionCode")
 
