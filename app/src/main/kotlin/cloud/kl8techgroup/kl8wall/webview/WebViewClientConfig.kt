@@ -53,8 +53,14 @@ class WebViewClientConfig(
     }
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-        handler.cancel()
-        onError(ERROR_SSL, "SSL error: ${error.primaryError}")
+        val host = error.url?.let { android.net.Uri.parse(it).host?.lowercase() }
+        if (host != null && isHostAllowed(host)) {
+            // Trust self-signed certificates for allowed internal Home Assistant hosts
+            handler.proceed()
+        } else {
+            handler.cancel()
+            onError(ERROR_SSL, "SSL error: ${error.primaryError}")
+        }
     }
 
     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
