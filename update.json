@@ -2,5 +2,5 @@
   "version": "2.0.33",
   "versionCode": 35,
   "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.33/kl8wall-v35.apk",
-  "changelog": "Release v2.0.33 - Add live MQTT diagnostics UI, manual reconnect, local hostname verification bypass, and HTTP status diagnostics."
+  "changelog": "Release v2.0.33 - Please see GitHub release notes for details."
 }
