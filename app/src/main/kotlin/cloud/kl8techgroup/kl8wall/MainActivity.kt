@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
     private var clearCacheRequested = false
 
     private var isRequestingPermissions = false
+    private var hasRequestedPermissionsThisSession = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -244,8 +245,9 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missingPermissions.isNotEmpty()) {
-            if (!isRequestingPermissions) {
+            if (!isRequestingPermissions && !hasRequestedPermissionsThisSession) {
                 isRequestingPermissions = true
+                hasRequestedPermissionsThisSession = true
                 requestPermissionLauncher.launch(missingPermissions.toTypedArray())
             }
         } else {
