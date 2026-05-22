@@ -104,6 +104,8 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
             MqttSection(viewModel)
             SettingsDivider()
             SensorsProxySection(viewModel)
+            SettingsDivider()
+            DeveloperSection()
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
@@ -901,6 +903,9 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(modifier = Modifier.height(16.dp))
+        SettingsDivider()
+        DeveloperSection()
     }
 }
 
@@ -938,4 +943,26 @@ private fun SectionHeader(title: String) {
 @Composable
 private fun SettingsDivider() {
     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+}
+
+@Composable
+private fun DeveloperSection() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = "Developed by kl8tech.group",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = "For support or questions, please visit kl8tech.group.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
 }

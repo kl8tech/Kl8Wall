@@ -34,6 +34,15 @@ android {
         }
     }
 
+    applicationVariants.all {
+        outputs.all {
+            val apkOutput = this as? com.android.build.gradle.api.ApkVariantOutput
+            if (apkOutput != null) {
+                apkOutput.outputFileName = "kl8wall-${buildType.name}.apk"
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
