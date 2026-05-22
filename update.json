@@ -1,6 +1,6 @@
 {
-  "version": "2.0.34",
-  "versionCode": 36,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.34/kl8wall-v36.apk",
-  "changelog": "Release v2.0.34 - Add casting receiver overlays, passcode lock screen control overlays, insecure audio mic shims, presence-based auto-brightness, background throttling, foreground service persistence, and premium settings cards."
+  "version": "2.0.35",
+  "versionCode": 37,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.35/kl8wall-v37.apk",
+  "changelog": "Release v2.0.35 - Add battery saver card, intercom configuration panel, locked update bypass, auto-brightness filter, and WiFi sleep prevention."
 }

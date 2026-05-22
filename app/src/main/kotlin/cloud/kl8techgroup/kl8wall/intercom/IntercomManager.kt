@@ -43,6 +43,11 @@ class IntercomManager(
     private var audioTrack: AudioTrack? = null
     private val isPlaying = AtomicBoolean(false)
 
+    var onStateChanged: ((isRecording: Boolean) -> Unit)? = null
+
+    val isRecordingActive: Boolean
+        get() = isRecording.get()
+
     private var rxTimeoutJob: Job? = null
     private val RX_TIMEOUT_MS = 1000L
 
@@ -61,6 +66,8 @@ class IntercomManager(
         // Stop any active playback to prevent feedback
         stopPlayback()
 
+        onStateChanged?.invoke(true)
+
         recordJob = scope.launch {
             val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN, AUDIO_FORMAT)
             val recBufSize = Math.max(minBuf, CHUNK_SIZE * 2)
@@ -76,6 +83,7 @@ class IntercomManager(
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to initialize AudioRecord", e)
                 isRecording.set(false)
+                onStateChanged?.invoke(false)
                 return@launch
             }
 
@@ -83,6 +91,7 @@ class IntercomManager(
                 Log.e(TAG, "AudioRecord state is not initialized")
                 audioRecord.release()
                 isRecording.set(false)
+                onStateChanged?.invoke(false)
                 return@launch
             }
 
@@ -92,6 +101,7 @@ class IntercomManager(
                 Log.e(TAG, "Failed to start recording", e)
                 audioRecord.release()
                 isRecording.set(false)
+                onStateChanged?.invoke(false)
                 return@launch
             }
 
@@ -115,6 +125,8 @@ class IntercomManager(
                 audioRecord.release()
             }
             Log.i(TAG, "Stopped intercom recording")
+            isRecording.set(false)
+            onStateChanged?.invoke(false)
         }
     }
 
@@ -126,6 +138,7 @@ class IntercomManager(
         Log.i(TAG, "Stopping intercom recording...")
         recordJob?.cancel()
         recordJob = null
+        onStateChanged?.invoke(false)
     }
 
     /**

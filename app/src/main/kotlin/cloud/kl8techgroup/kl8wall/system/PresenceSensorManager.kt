@@ -38,6 +38,9 @@ class PresenceSensorManager(
     private var humiditySensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_RELATIVE_HUMIDITY)
 
     private var lastLux: Float? = null
+    private var smoothedLux: Float? = null
+    private var lastSetBrightness: Int? = null
+
     var isPresent = false
         private set
     private var timeoutJob: Job? = null
@@ -88,6 +91,17 @@ class PresenceSensorManager(
         scope.launch {
             settingsRepository.lowPowerModeEnabled.collectLatest {
                 evaluateLowPowerMode()
+            }
+        }
+
+        scope.launch {
+            settingsRepository.autoBrightnessEnabled.collectLatest { enabled ->
+                resetBrightnessSmoothing()
+                if (enabled) {
+                    lastLux?.let { lux ->
+                        evaluateAutoBrightness(lux)
+                    }
+                }
             }
         }
     }
@@ -172,6 +186,9 @@ class PresenceSensorManager(
         isPresent = present
         Log.i(TAG, "Presence state changed: $present")
         
+        // Reset brightness smoothing so that it immediately snaps to the new correct brightness
+        resetBrightnessSmoothing()
+
         // Notify HA via MQTT
         mqttManager.publishPresenceState(present)
 
@@ -242,11 +259,7 @@ class PresenceSensorManager(
 
                 // Add auto-brightness and low-power evaluation
                 if (settingsRepository.autoBrightnessEnabled.value && !_isLowPowerMode.value) {
-                    val minPct = settingsRepository.minBrightnessPercent.value
-                    val targetBrightness = mapLuxToBrightness(currentLux, minPct)
-                    scope.launch(Dispatchers.Main) {
-                        deviceController.setBrightness(targetBrightness)
-                    }
+                    evaluateAutoBrightness(currentLux)
                 }
                 evaluateLowPowerMode()
             }
@@ -263,6 +276,37 @@ class PresenceSensorManager(
                 latestHumidity = event.values[0]
             }
         }
+    }
+
+    private fun evaluateAutoBrightness(currentLux: Float) {
+        val lastSmoothed = smoothedLux
+        val nextSmoothed = if (lastSmoothed == null) {
+            currentLux
+        } else if (abs(currentLux - lastSmoothed) > 50.0f) {
+            // Immediate snap for dramatic lighting changes (e.g. lights turned on/off)
+            currentLux
+        } else {
+            // EMA filter with alpha = 0.08
+            (0.08f * currentLux) + (0.92f * lastSmoothed)
+        }
+        smoothedLux = nextSmoothed
+
+        val minPct = settingsRepository.minBrightnessPercent.value
+        val targetBrightness = mapLuxToBrightness(nextSmoothed, minPct)
+
+        val lastSet = lastSetBrightness
+        // Hysteresis: only update if lastSet is null or if targetBrightness differs by at least 3% (3 out of 100)
+        if (lastSet == null || abs(targetBrightness - lastSet) >= 3) {
+            lastSetBrightness = targetBrightness
+            scope.launch(Dispatchers.Main) {
+                deviceController.setBrightness(targetBrightness)
+            }
+        }
+    }
+
+    fun resetBrightnessSmoothing() {
+        smoothedLux = null
+        lastSetBrightness = null
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {

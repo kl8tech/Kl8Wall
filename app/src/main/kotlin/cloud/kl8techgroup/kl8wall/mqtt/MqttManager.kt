@@ -450,6 +450,19 @@ class MqttManager(
         }
         pubSwitch("app_foreground", "App Foreground")
         pubSwitch("camera_streaming", "Camera Streaming")
+        pubSwitch("intercom_active", "Intercom Active")
+        pubSwitch("charger", "Charger")
+
+        // Intercom Target Text Entity
+        val intercomTargetConfig = JSONObject().apply {
+            put("name", "Intercom Target")
+            put("unique_id", "kl8wall_${deviceName}_intercom_target")
+            put("command_topic", "kl8wall/$deviceName/intercom_target/cmd")
+            put("state_topic", "kl8wall/$deviceName/intercom_target/state")
+            put("mode", "text")
+            put("device", deviceJson)
+        }
+        publishString("homeassistant/text/kl8wall_$deviceName/intercom_target/config", intercomTargetConfig.toString(), retain = true)
 
         // Update Entity Discovery
         val updateEntityConfig = JSONObject().apply {
@@ -553,7 +566,10 @@ class MqttManager(
             "kl8wall/$deviceName/cast_play/cmd",
             "kl8wall/$deviceName/cast_pause/cmd",
             "kl8wall/$deviceName/cast_stop/cmd",
-            "kl8wall/$deviceName/lock/cmd"
+            "kl8wall/$deviceName/lock/cmd",
+            "kl8wall/$deviceName/intercom_active/cmd",
+            "kl8wall/$deviceName/intercom_target/cmd",
+            "kl8wall/$deviceName/charger/cmd"
         )
         val qos = IntArray(topics.size) { 1 }
 
@@ -694,6 +710,27 @@ class MqttManager(
                             app?.passcodeLockManager?.unlock()
                         }
                     }
+                    "kl8wall/$deviceName/intercom_active/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        if (payload.uppercase() == "ON") {
+                            val target = settingsRepository.intercomTarget.value
+                            app?.intercomManager?.startRecording(target)
+                        } else if (payload.uppercase() == "OFF") {
+                            app?.intercomManager?.stopRecording()
+                        }
+                    }
+                    "kl8wall/$deviceName/intercom_target/cmd" -> {
+                        settingsRepository.setIntercomTarget(payload)
+                        publishIntercomTargetState(payload)
+                    }
+                    "kl8wall/$deviceName/charger/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        if (payload.uppercase() == "ON") {
+                            app?.batterySaverManager?.setChargerStateOverride(true)
+                        } else if (payload.uppercase() == "OFF") {
+                            app?.batterySaverManager?.setChargerStateOverride(false)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing command on $topic: $payload", e)
@@ -758,6 +795,13 @@ class MqttManager(
                 publishString("kl8wall/$deviceName/screen_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
                 publishString("kl8wall/$deviceName/presence_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
                 publishString("kl8wall/$deviceName/tts_volume/state", deviceController.getTtsVolume().toString(), false)
+
+                val intercomActive = app?.intercomManager?.isRecordingActive ?: false
+                publishString("kl8wall/$deviceName/intercom_active/state", if (intercomActive) "ON" else "OFF", false)
+                publishString("kl8wall/$deviceName/intercom_target/state", settingsRepository.intercomTarget.value, false)
+                
+                val chargerOn = app?.batterySaverManager?.chargerState?.value ?: false
+                publishString("kl8wall/$deviceName/charger/state", if (chargerOn) "ON" else "OFF", false)
             }
         }
     }
@@ -791,6 +835,21 @@ class MqttManager(
 
     fun publishAudio(targetDevice: String, audioBytes: ByteArray) {
         publishBytes("kl8wall/$targetDevice/audio_rx", audioBytes, retain = false)
+    }
+
+    fun publishIntercomActiveState(isRecording: Boolean) {
+        val config = currentConfig ?: return
+        publishString("kl8wall/${config.deviceName}/intercom_active/state", if (isRecording) "ON" else "OFF", retain = true)
+    }
+
+    fun publishIntercomTargetState(target: String) {
+        val config = currentConfig ?: return
+        publishString("kl8wall/${config.deviceName}/intercom_target/state", target, retain = true)
+    }
+
+    fun publishChargerState(isOn: Boolean) {
+        val config = currentConfig ?: return
+        publishString("kl8wall/${config.deviceName}/charger/state", if (isOn) "ON" else "OFF", retain = true)
     }
 
     private fun publishString(topic: String, message: String, retain: Boolean) {
@@ -850,6 +909,19 @@ class MqttManager(
                 launch {
                     lock.isLocked.collect { isLocked ->
                         publishString("kl8wall/$deviceName/lock/state", if (isLocked) "LOCKED" else "UNLOCKED", true)
+                    }
+                }
+            }
+            launch {
+                settingsRepository.intercomTarget.collect { target ->
+                    publishIntercomTargetState(target)
+                }
+            }
+            val batterySaver = app.batterySaverManager
+            if (batterySaver != null) {
+                launch {
+                    batterySaver.chargerState.collect { chargerState ->
+                        publishChargerState(chargerState)
                     }
                 }
             }

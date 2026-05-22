@@ -11,12 +11,14 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import cloud.kl8techgroup.kl8wall.MainActivity
 
 class KL8WallService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -38,6 +40,7 @@ class KL8WallService : Service() {
         }
 
         acquireWakeLock()
+        acquireWifiLock()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -49,6 +52,7 @@ class KL8WallService : Service() {
     }
 
     override fun onDestroy() {
+        releaseWifiLock()
         releaseWakeLock()
         super.onDestroy()
     }
@@ -95,6 +99,28 @@ class KL8WallService : Service() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun acquireWifiLock() {
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            if (wifiManager != null) {
+                val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL
+                }
+                wifiLock = wifiManager.createWifiLock(lockType, "KL8Wall::WifiLock").apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+                Log.i("KL8WallService", "Acquired WifiLock type=$lockType")
+            }
+        } catch (e: Exception) {
+            Log.e("KL8WallService", "Failed to acquire WifiLock", e)
+        }
+    }
+
     private fun releaseWakeLock() {
         wakeLock?.let {
             if (it.isHeld) {
@@ -102,6 +128,16 @@ class KL8WallService : Service() {
             }
         }
         wakeLock = null
+    }
+
+    private fun releaseWifiLock() {
+        wifiLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+        wifiLock = null
+        Log.i("KL8WallService", "Released WifiLock")
     }
 
     companion object {

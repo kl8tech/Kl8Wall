@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
+import cloud.kl8techgroup.kl8wall.MainActivity
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,13 @@ class OtaManager(private val context: Context) {
 
     private val _updateProgress = MutableStateFlow<Int?>(null)
     val updateProgress: StateFlow<Int?> = _updateProgress.asStateFlow()
+
+    private val _isInstallingInteractive = MutableStateFlow(false)
+    val isInstallingInteractive: StateFlow<Boolean> = _isInstallingInteractive.asStateFlow()
+
+    fun resetInstallingInteractive() {
+        _isInstallingInteractive.value = false
+    }
 
     private var latestApkUrl: String? = null
 
@@ -199,17 +207,32 @@ class OtaManager(private val context: Context) {
 
     private fun installWithPrompt(apkFile: File) {
         try {
-            val authority = "${context.packageName}.provider"
-            val apkUri = FileProvider.getUriForFile(context, authority, apkFile)
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(apkUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            _isInstallingInteractive.value = true
+            
+            // Wake the screen using a temporary WakeLock
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            if (powerManager != null) {
+                @Suppress("DEPRECATION")
+                val wakeLock = powerManager.newWakeLock(
+                    android.os.PowerManager.FULL_WAKE_LOCK or
+                            android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                            android.os.PowerManager.ON_AFTER_RELEASE,
+                    "KL8Wall::OtaWakeLock"
+                )
+                wakeLock.acquire(3000L)
             }
-            context.startActivity(intent)
+
+            // Launch MainActivity with extras
+            val mainIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                putExtra("wake_for_ota", true)
+                putExtra("ota_apk_path", apkFile.absolutePath)
+            }
+            context.startActivity(mainIntent)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to launch interactive installer intent", e)
+            Log.e(TAG, "Failed to launch interactive installer flow", e)
             _updateError.value = "Failed to launch installer UI"
+            _isInstallingInteractive.value = false
         }
     }
 

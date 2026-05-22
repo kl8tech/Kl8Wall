@@ -62,6 +62,11 @@ class SettingsRepository(context: Context) {
     private val _lowPowerModeEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOW_POWER_MODE_ENABLED, true))
     private val _minBrightnessPercent = MutableStateFlow(prefs.getInt(KEY_MIN_BRIGHTNESS_PERCENT, 10))
     private val _manualBrightnessPercent = MutableStateFlow(prefs.getInt(KEY_MANUAL_BRIGHTNESS_PERCENT, 70))
+    private val _batterySaverEnabled = MutableStateFlow(prefs.getBoolean(KEY_BATTERY_SAVER_ENABLED, false))
+    private val _batterySaverEntityId = MutableStateFlow(prefs.getString(KEY_BATTERY_SAVER_ENTITY_ID, "switch.tablet_charger") ?: "switch.tablet_charger")
+    private val _batterySaverMin = MutableStateFlow(prefs.getInt(KEY_BATTERY_SAVER_MIN, 20))
+    private val _batterySaverMax = MutableStateFlow(prefs.getInt(KEY_BATTERY_SAVER_MAX, 80))
+    private val _intercomTarget = MutableStateFlow(prefs.getString(KEY_INTERCOM_TARGET, "living_room") ?: "living_room")
 
     /** Unique device name for MQTT topics and mDNS hostnames. */
     val deviceName: StateFlow<String> = _deviceName.asStateFlow()
@@ -151,6 +156,21 @@ class SettingsRepository(context: Context) {
 
     /** Static manual brightness percentage when auto-brightness is disabled. */
     val manualBrightnessPercent: StateFlow<Int> = _manualBrightnessPercent.asStateFlow()
+
+    /** Whether battery saver smart charging is enabled. */
+    val batterySaverEnabled: StateFlow<Boolean> = _batterySaverEnabled.asStateFlow()
+
+    /** The Home Assistant switch entity ID that controls power to this charger. */
+    val batterySaverEntityId: StateFlow<String> = _batterySaverEntityId.asStateFlow()
+
+    /** Minimum battery level before charger turns back ON. */
+    val batterySaverMin: StateFlow<Int> = _batterySaverMin.asStateFlow()
+
+    /** Maximum battery level before charger turns OFF. */
+    val batterySaverMax: StateFlow<Int> = _batterySaverMax.asStateFlow()
+
+    /** Default target device name for intercom. */
+    val intercomTarget: StateFlow<String> = _intercomTarget.asStateFlow()
 
     init {
         if (_httpBearerToken.value.isEmpty()) {
@@ -340,6 +360,31 @@ class SettingsRepository(context: Context) {
         _manualBrightnessPercent.value = percent
     }
 
+    fun setBatterySaverEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BATTERY_SAVER_ENABLED, enabled).apply()
+        _batterySaverEnabled.value = enabled
+    }
+
+    fun setBatterySaverEntityId(entityId: String) {
+        prefs.edit().putString(KEY_BATTERY_SAVER_ENTITY_ID, entityId).apply()
+        _batterySaverEntityId.value = entityId
+    }
+
+    fun setBatterySaverMin(min: Int) {
+        prefs.edit().putInt(KEY_BATTERY_SAVER_MIN, min).apply()
+        _batterySaverMin.value = min
+    }
+
+    fun setBatterySaverMax(max: Int) {
+        prefs.edit().putInt(KEY_BATTERY_SAVER_MAX, max).apply()
+        _batterySaverMax.value = max
+    }
+
+    fun setIntercomTarget(target: String) {
+        prefs.edit().putString(KEY_INTERCOM_TARGET, target).apply()
+        _intercomTarget.value = target
+    }
+
     private fun generateAndStoreHttpBearerToken() {
         val bytes = ByteArray(TOKEN_BYTE_LENGTH)
         SecureRandom().nextBytes(bytes)
@@ -394,6 +439,11 @@ class SettingsRepository(context: Context) {
         private const val KEY_LOW_POWER_MODE_ENABLED = "low_power_mode_enabled"
         private const val KEY_MIN_BRIGHTNESS_PERCENT = "min_brightness_percent"
         private const val KEY_MANUAL_BRIGHTNESS_PERCENT = "manual_brightness_percent"
+        private const val KEY_BATTERY_SAVER_ENABLED = "battery_saver_enabled"
+        private const val KEY_BATTERY_SAVER_ENTITY_ID = "battery_saver_entity_id"
+        private const val KEY_BATTERY_SAVER_MIN = "battery_saver_min"
+        private const val KEY_BATTERY_SAVER_MAX = "battery_saver_max"
+        private const val KEY_INTERCOM_TARGET = "intercom_target"
         private const val DEFAULT_HTTP_PORT = 8127
         private const val TOKEN_BYTE_LENGTH = 32
 

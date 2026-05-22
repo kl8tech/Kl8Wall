@@ -21,6 +21,7 @@ import cloud.kl8techgroup.kl8wall.system.OtaManager
 import cloud.kl8techgroup.kl8wall.cast.CastManager
 import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockManager
 import cloud.kl8techgroup.kl8wall.system.KL8WallService
+import cloud.kl8techgroup.kl8wall.system.BatterySaverManager
 import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -85,6 +86,8 @@ class KL8WallApplication : Application() {
     var castManager: CastManager? = null
         private set
     var passcodeLockManager: PasscodeLockManager? = null
+        private set
+    var batterySaverManager: BatterySaverManager? = null
         private set
 
     var isAppInForeground: Boolean = false
@@ -258,8 +261,15 @@ class KL8WallApplication : Application() {
 
         castManager = CastManager(this)
 
+        val batterySaver = BatterySaverManager(this, settingsRepository)
+        batterySaverManager = batterySaver
+        batterySaver.start()
+
         val intercom = cloud.kl8techgroup.kl8wall.intercom.IntercomManager(this) { target, bytes ->
             mqttManager?.publishAudio(target, bytes)
+        }
+        intercom.onStateChanged = { isRecording ->
+            mqttManager?.publishIntercomActiveState(isRecording)
         }
         intercomManager = intercom
 
@@ -318,6 +328,9 @@ class KL8WallApplication : Application() {
         castManager = null
         val serviceIntent = Intent(this, KL8WallService::class.java)
         stopService(serviceIntent)
+
+        batterySaverManager?.stop()
+        batterySaverManager = null
 
         cameraManager?.stop()
         cameraManager = null

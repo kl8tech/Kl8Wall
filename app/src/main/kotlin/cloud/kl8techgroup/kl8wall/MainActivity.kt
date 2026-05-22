@@ -55,6 +55,7 @@ import android.util.Log
 import android.content.Context
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Build
 import android.net.wifi.WifiManager
 import android.media.AudioManager
 import android.app.ActivityManager
@@ -222,6 +223,12 @@ class MainActivity : ComponentActivity() {
         val bypassSetup = intent.getBooleanExtra("bypass_setup", false)
         val clearCache = intent.getBooleanExtra("clear_cache", false)
         val openSettings = intent.getBooleanExtra("open_settings", false)
+        val wakeForOta = intent.getBooleanExtra("wake_for_ota", false)
+        val otaApkPath = intent.getStringExtra("ota_apk_path")
+
+        if (wakeForOta && !otaApkPath.isNullOrBlank()) {
+            handleOtaWake(otaApkPath)
+        }
 
         if (clearCache) {
             clearCacheRequested = true
@@ -265,6 +272,54 @@ class MainActivity : ComponentActivity() {
         if (bypassSetup || !startUrl.isNullOrBlank()) {
             app.settingsRepository.completeFirstRun()
         }
+    }
+
+    private fun handleOtaWake(apkPath: String) {
+        Log.i("MainActivity", "Handling OTA Wake up. APK Path: $apkPath")
+        
+        // Wake screen
+        screenController.screenOn(this)
+        
+        // Request keyguard dismissal
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+            keyguardManager?.requestDismissKeyguard(this, object : android.app.KeyguardManager.KeyguardDismissCallback() {
+                override fun onDismissError() {
+                    Log.e("MainActivity", "Keyguard dismiss error")
+                }
+                override fun onDismissSucceeded() {
+                    Log.i("MainActivity", "Keyguard dismiss succeeded")
+                }
+                override fun onDismissCancelled() {
+                    Log.i("MainActivity", "Keyguard dismiss cancelled")
+                }
+            })
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+
+        // Wait 1.5 seconds, then trigger the package installer
+        mainHandler.postDelayed({
+            try {
+                val apkFile = java.io.File(apkPath)
+                val authority = "${packageName}.provider"
+                val apkUri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, authority, apkFile)
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(installIntent)
+                Log.i("MainActivity", "Launched package installer for OTA update")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to launch package installer from wake handler", e)
+            }
+        }, 1500L)
     }
 
     override fun onResume() {
@@ -316,7 +371,14 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         val app = application as KL8WallApplication
+        if (hasFocus) {
+            app.otaManager.resetInstallingInteractive()
+        }
         if (!hasFocus && !app.settingsRepository.isFirstRun.value && !isRequestingPermissions) {
+            if (app.otaManager.isInstallingInteractive.value) {
+                Log.d("MainActivity", "Bypassing kiosk relaunch because isInstallingInteractive is true")
+                return
+            }
             // App lost focus, bring it back!
             val intent = Intent(this, MainActivity::class.java)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)

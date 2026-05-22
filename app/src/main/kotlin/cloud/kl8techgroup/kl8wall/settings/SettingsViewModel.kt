@@ -35,6 +35,12 @@ class SettingsViewModel(
     val minBrightnessPercent: StateFlow<Int> = repository.minBrightnessPercent
     val manualBrightnessPercent: StateFlow<Int> = repository.manualBrightnessPercent
     
+    val batterySaverEnabled: StateFlow<Boolean> = repository.batterySaverEnabled
+    val batterySaverEntityId: StateFlow<String> = repository.batterySaverEntityId
+    val batterySaverMin: StateFlow<Int> = repository.batterySaverMin
+    val batterySaverMax: StateFlow<Int> = repository.batterySaverMax
+    val intercomTarget: StateFlow<String> = repository.intercomTarget
+    
     val deviceName: StateFlow<String> = repository.deviceName
     val mqttEnabled: StateFlow<Boolean> = repository.mqttEnabled
     val mqttBroker: StateFlow<String> = repository.mqttBroker
@@ -67,6 +73,12 @@ class SettingsViewModel(
     fun setLowPowerModeEnabled(enabled: Boolean) = repository.setLowPowerModeEnabled(enabled)
     fun setMinBrightnessPercent(percent: Int) = repository.setMinBrightnessPercent(percent)
     fun setManualBrightnessPercent(percent: Int) = repository.setManualBrightnessPercent(percent)
+
+    fun setBatterySaverEnabled(enabled: Boolean) = repository.setBatterySaverEnabled(enabled)
+    fun setBatterySaverEntityId(entityId: String) = repository.setBatterySaverEntityId(entityId)
+    fun setBatterySaverMin(min: Int) = repository.setBatterySaverMin(min)
+    fun setBatterySaverMax(max: Int) = repository.setBatterySaverMax(max)
+    fun setIntercomTarget(target: String) = repository.setIntercomTarget(target)
 
 
     fun setStartUrl(url: String) = repository.setStartUrl(url)

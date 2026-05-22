@@ -208,6 +208,8 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
             )
             ConnectionCard(viewModel)
             DisplaySleepCard(viewModel)
+            BatterySaverCard(viewModel)
+            IntercomCard(viewModel)
             NetworkSecurityCard(viewModel)
             MqttIdentityCard(viewModel)
             SystemMaintenanceCard()
@@ -356,6 +358,223 @@ private fun DisplaySleepCard(viewModel: SettingsViewModel) {
             checked = mediaPlaybackRequiresGesture,
             onCheckedChange = viewModel::setMediaPlaybackRequiresGesture
         )
+    }
+}
+
+@Composable
+private fun BatterySaverCard(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val batterySaverEnabled by viewModel.batterySaverEnabled.collectAsState()
+    val batterySaverEntityId by viewModel.batterySaverEntityId.collectAsState()
+    val batterySaverMin by viewModel.batterySaverMin.collectAsState()
+    val batterySaverMax by viewModel.batterySaverMax.collectAsState()
+
+    val app = context.applicationContext as? KL8WallApplication
+    val chargerOnState = app?.batterySaverManager?.chargerState
+    val chargerOn = chargerOnState?.collectAsState()?.value ?: false
+
+    var editEntityId by remember(batterySaverEntityId) { mutableStateOf(batterySaverEntityId) }
+
+    SettingsCard(title = "Battery Saver (Smart Charging)") {
+        SettingsToggleRow(
+            title = "Enable Smart Charging",
+            description = "Periodically disconnects the charger to preserve battery health",
+            checked = batterySaverEnabled,
+            onCheckedChange = viewModel::setBatterySaverEnabled
+        )
+
+        if (batterySaverEnabled) {
+            OutlinedTextField(
+                value = editEntityId,
+                onValueChange = { editEntityId = it },
+                label = { Text("Home Assistant Switch Entity ID") },
+                placeholder = { Text("switch.tablet_charger") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = {
+                    viewModel.setBatterySaverEntityId(editEntityId.trim())
+                    Toast.makeText(context, "Entity ID saved", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save Entity ID") }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+            SettingsSliderRow(
+                title = "Minimum Charge Threshold",
+                valueText = "$batterySaverMin%",
+                value = batterySaverMin.toFloat(),
+                onValueChange = { viewModel.setBatterySaverMin(it.toInt()) },
+                valueRange = 10f..50f
+            )
+
+            SettingsSliderRow(
+                title = "Maximum Charge Threshold",
+                valueText = "$batterySaverMax%",
+                value = batterySaverMax.toFloat(),
+                onValueChange = { viewModel.setBatterySaverMax(it.toInt()) },
+                valueRange = 60f..95f
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                    Text("Charger Plug State", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = if (chargerOn) "ON (Charging)" else "OFF (Not Charging)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (chargerOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Button(
+                    onClick = {
+                        app?.batterySaverManager?.setChargerStateOverride(!chargerOn)
+                    }
+                ) {
+                    Text(if (chargerOn) "Turn Plug OFF" else "Turn Plug ON")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IntercomCard(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val intercomTarget by viewModel.intercomTarget.collectAsState()
+    var editTarget by remember(intercomTarget) { mutableStateOf(intercomTarget) }
+
+    val app = context.applicationContext as? KL8WallApplication
+    val intercomManager = app?.intercomManager
+
+    var isRecording by remember { mutableStateOf(intercomManager?.isRecordingActive ?: false) }
+
+    DisposableEffect(intercomManager) {
+        val originalListener = intercomManager?.onStateChanged
+        intercomManager?.onStateChanged = { recording ->
+            isRecording = recording
+            originalListener?.invoke(recording)
+        }
+        onDispose {
+            intercomManager?.onStateChanged = originalListener
+        }
+    }
+
+    var isLoopbackTesting by remember { mutableStateOf(false) }
+    var loopbackCountdown by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    SettingsCard(title = "Intercom Settings") {
+        OutlinedTextField(
+            value = editTarget,
+            onValueChange = { editTarget = it },
+            label = { Text("Default Target Device Name") },
+            placeholder = { Text("living_room") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Button(
+            onClick = {
+                viewModel.setIntercomTarget(editTarget.trim())
+                app?.mqttManager?.publishIntercomTargetState(editTarget.trim())
+                Toast.makeText(context, "Intercom target saved", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Save Target Device") }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                Text("Microphone Recording", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = if (isRecording) "Recording..." else "Idle",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = isRecording,
+                onCheckedChange = { start ->
+                    if (start) {
+                        intercomManager?.startRecording(editTarget.trim())
+                    } else {
+                        intercomManager?.stopRecording()
+                    }
+                }
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Audio Loopback Test",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Record 3 seconds of audio from the microphone and play it back locally to test mic and speaker hardware.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Button(
+                onClick = {
+                    if (isLoopbackTesting) return@Button
+                    isLoopbackTesting = true
+                    scope.launch {
+                        val tempAudioChunks = mutableListOf<ByteArray>()
+                        val testIntercom = cloud.kl8techgroup.kl8wall.intercom.IntercomManager(context) { _, bytes ->
+                            tempAudioChunks.add(bytes)
+                        }
+                        
+                        testIntercom.startRecording("loopback_test")
+                        for (i in 3 downTo 1) {
+                            loopbackCountdown = i
+                            delay(1000)
+                        }
+                        testIntercom.stopRecording()
+                        
+                        loopbackCountdown = 0
+                        Toast.makeText(context, "Playing back recorded audio...", Toast.LENGTH_SHORT).show()
+                        tempAudioChunks.forEach { chunk ->
+                            testIntercom.handleIncomingAudio(chunk)
+                            delay(40)
+                        }
+                        delay(1000)
+                        testIntercom.stopPlayback()
+                        isLoopbackTesting = false
+                    }
+                },
+                enabled = !isLoopbackTesting && !isRecording,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isLoopbackTesting) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.primary
+                )
+            ) {
+                if (isLoopbackTesting) {
+                    Text("Recording: ${loopbackCountdown}s...")
+                } else {
+                    Text("Start Loopback Test")
+                }
+            }
+        }
     }
 }
 
