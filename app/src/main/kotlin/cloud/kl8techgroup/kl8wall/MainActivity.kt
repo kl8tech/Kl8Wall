@@ -249,6 +249,17 @@ class MainActivity : ComponentActivity() {
         screenController.releaseWakeLock()
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        val app = application as KL8WallApplication
+        if (!hasFocus && !app.settingsRepository.isFirstRun.value && !isRequestingPermissions) {
+            // App lost focus, bring it back!
+            val intent = Intent(this, MainActivity::class.java)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            startActivity(intent)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         val app = application as KL8WallApplication
