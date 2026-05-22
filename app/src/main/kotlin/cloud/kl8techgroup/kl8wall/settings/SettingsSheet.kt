@@ -58,6 +58,10 @@ import cloud.kl8techgroup.kl8wall.server.HaDiscovery
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import cloud.kl8techgroup.kl8wall.KL8WallApplication
+import cloud.kl8techgroup.kl8wall.mqtt.MqttConnectionState
+import androidx.compose.foundation.background
+import kotlinx.coroutines.flow.MutableStateFlow
 
 private val PORT_RANGE = 1024..65535
 private const val BEARER_MASK_LENGTH = 12
@@ -531,6 +535,79 @@ private fun MqttSection(viewModel: SettingsViewModel) {
             trailingIcon = { TokenVisibilityToggle(showPassword) { showPassword = !showPassword } },
             modifier = Modifier.fillMaxWidth()
         )
+    }
+
+    val mqttManager = remember { (context.applicationContext as? KL8WallApplication)?.mqttManager }
+    val connectionState by (mqttManager?.connectionState ?: MutableStateFlow(MqttConnectionState.DISCONNECTED)).collectAsState()
+    val lastError by (mqttManager?.lastError ?: MutableStateFlow(null)).collectAsState()
+
+    if (mqttEnabled) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                )
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Connection Status",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val (statusText, statusColor) = when (connectionState) {
+                        MqttConnectionState.CONNECTED -> "Connected" to androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                        MqttConnectionState.CONNECTING -> "Connecting..." to androidx.compose.ui.graphics.Color(0xFFFF9800)
+                        MqttConnectionState.DISCONNECTED -> "Disconnected" to androidx.compose.ui.graphics.Color(0xFFF44336)
+                    }
+
+                    androidx.compose.foundation.Canvas(modifier = Modifier.size(8.dp)) {
+                        drawCircle(color = statusColor)
+                    }
+
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = statusColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                lastError?.let { error ->
+                    if (error.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            IconButton(
+                onClick = {
+                    mqttManager?.reconnect()
+                },
+                enabled = connectionState != MqttConnectionState.CONNECTING
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Reconnect"
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
     }
 
     Button(

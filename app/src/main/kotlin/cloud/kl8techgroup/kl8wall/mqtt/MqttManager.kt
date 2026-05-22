@@ -750,6 +750,7 @@ class MqttManager(
         val config = currentConfig ?: return
         if (!config.enabled || config.broker.isBlank()) return
         Log.i(TAG, "Forcing MQTT reconnect...")
+        disconnectSync()
         connectAsync(config)
     }
 }

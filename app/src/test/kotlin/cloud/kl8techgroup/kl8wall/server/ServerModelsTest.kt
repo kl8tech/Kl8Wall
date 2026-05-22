@@ -29,6 +29,22 @@ class ServerModelsTest {
     }
 
     @Test
+    fun statusResponseIncludesMqttDiagnostics() {
+        val response = StatusResponse(
+            screenOn = true,
+            currentUrl = "http://ha.local:8123",
+            lockState = "DEVICE_OWNER",
+            version = "1.0.0",
+            mqttConnected = true,
+            mqttError = "some connection error"
+        )
+        val serialized = json.encodeToString(StatusResponse.serializer(), response)
+
+        assertTrue(serialized.contains("\"mqtt_connected\":true"))
+        assertTrue(serialized.contains("\"mqtt_error\":\"some connection error\""))
+    }
+
+    @Test
     fun configResponseUsesSnakeCaseKeys() {
         val response = ConfigResponse(
             port = 8127,

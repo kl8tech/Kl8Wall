@@ -9,7 +9,9 @@ data class StatusResponse(
     @SerialName("screen_on") val screenOn: Boolean,
     @SerialName("current_url") val currentUrl: String,
     @SerialName("lock_state") val lockState: String,
-    val version: String
+    val version: String,
+    @SerialName("mqtt_connected") val mqttConnected: Boolean? = null,
+    @SerialName("mqtt_error") val mqttError: String? = null
 )
 
 /** GET /api/config response — non-sensitive configuration. */

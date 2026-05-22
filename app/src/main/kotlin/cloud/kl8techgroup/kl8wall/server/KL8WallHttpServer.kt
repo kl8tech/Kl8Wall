@@ -84,11 +84,14 @@ class KL8WallHttpServer(
     }
 
     private fun handleStatus(): Response = withController { controller ->
+        val mqtt = KL8WallApplication.instance.mqttManager
         val status = StatusResponse(
             screenOn = controller.isScreenOn(),
             currentUrl = controller.getCurrentUrl(),
             lockState = controller.getLockState(),
-            version = BuildConfig.VERSION_NAME
+            version = BuildConfig.VERSION_NAME,
+            mqttConnected = mqtt?.isConnected(),
+            mqttError = mqtt?.lastError?.value
         )
         jsonResponse(Response.Status.OK, json.encodeToString(StatusResponse.serializer(), status))
     }
