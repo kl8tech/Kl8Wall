@@ -16,6 +16,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import android.view.View
 
 /**
  * Application entry point for KL8Wall.
@@ -61,6 +68,10 @@ class KL8WallApplication : Application() {
     var isAppInForeground: Boolean = false
         private set
 
+    @Volatile
+    var currentActivity: android.app.Activity? = null
+        private set
+
     private var activeActivities = 0
 
     override fun onCreate() {
@@ -73,23 +84,37 @@ class KL8WallApplication : Application() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
             override fun onActivityStarted(activity: android.app.Activity) {
+                currentActivity = activity
                 if (activeActivities == 0) {
                     isAppInForeground = true
                     notifyForegroundState(true)
                 }
                 activeActivities++
             }
-            override fun onActivityResumed(activity: android.app.Activity) {}
-            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivityResumed(activity: android.app.Activity) {
+                currentActivity = activity
+            }
+            override fun onActivityPaused(activity: android.app.Activity) {
+                if (currentActivity == activity) {
+                    currentActivity = null
+                }
+            }
             override fun onActivityStopped(activity: android.app.Activity) {
                 activeActivities--
                 if (activeActivities == 0) {
                     isAppInForeground = false
                     notifyForegroundState(false)
                 }
+                if (currentActivity == activity) {
+                    currentActivity = null
+                }
             }
             override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
-            override fun onActivityDestroyed(activity: android.app.Activity) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {
+                if (currentActivity == activity) {
+                    currentActivity = null
+                }
+            }
         })
     }
 
@@ -201,6 +226,55 @@ class KL8WallApplication : Application() {
 
         mqttManager?.stop()
         mqttManager = null
+    }
+
+    /**
+     * Captures a screenshot of the current foreground activity, compressing it as a JPEG.
+     * Returns null if no activity is in the foreground or the capture fails.
+     */
+    suspend fun captureCurrentScreen(): ByteArray? {
+        val activity = currentActivity ?: return null
+        return suspendCancellableCoroutine { continuation ->
+            try {
+                val window = activity.window
+                val view = window.decorView
+                if (view.width <= 0 || view.height <= 0) {
+                    continuation.resume(null)
+                    return@suspendCancellableCoroutine
+                }
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                
+                PixelCopy.request(window, bitmap, { copyResult ->
+                    if (copyResult == PixelCopy.SUCCESS) {
+                        try {
+                            val outStream = java.io.ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 70, outStream)
+                            val bytes = outStream.toByteArray()
+                            bitmap.recycle()
+                            continuation.resume(bytes)
+                        } catch (e: Exception) {
+                            continuation.resume(null)
+                        }
+                    } else {
+                        // Fallback: draw view directly to Canvas
+                        try {
+                            val fallbackBitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                            val canvas = android.graphics.Canvas(fallbackBitmap)
+                            view.draw(canvas)
+                            val outStream = java.io.ByteArrayOutputStream()
+                            fallbackBitmap.compress(Bitmap.CompressFormat.JPEG, 70, outStream)
+                            val bytes = outStream.toByteArray()
+                            fallbackBitmap.recycle()
+                            continuation.resume(bytes)
+                        } catch (e: Exception) {
+                            continuation.resume(null)
+                        }
+                    }
+                }, Handler(Looper.getMainLooper()))
+            } catch (e: Exception) {
+                continuation.resume(null)
+            }
+        }
     }
 
     companion object {

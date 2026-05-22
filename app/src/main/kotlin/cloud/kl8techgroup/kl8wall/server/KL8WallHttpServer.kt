@@ -1,9 +1,11 @@
 package cloud.kl8techgroup.kl8wall.server
 
 import cloud.kl8techgroup.kl8wall.BuildConfig
+import cloud.kl8techgroup.kl8wall.KL8WallApplication
 import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.runBlocking
 
 /**
  * Embedded HTTP server for remote device control.
@@ -66,6 +68,7 @@ class KL8WallHttpServer(
         "POST /api/reload" -> withController { handleReload(it) }
         "POST /api/tts" -> withController { handleTts(it, session) }
         "POST /api/tts/stop" -> withController { handleTtsStop(it) }
+        "GET /api/screenshot" -> handleScreenshot()
         else -> errorResponse(Response.Status.NOT_FOUND, "Not found")
     }
 
@@ -162,6 +165,21 @@ class KL8WallHttpServer(
         }
         controller.speak(request.text)
         return successResponse()
+    }
+
+    private fun handleScreenshot(): Response {
+        val app = KL8WallApplication.instance
+        val bytes = runBlocking {
+            app.captureCurrentScreen()
+        }
+        if (bytes == null) {
+            return errorResponse(Response.Status.INTERNAL_ERROR, "Failed to capture screen or app not in foreground")
+        }
+        val response = newFixedLengthResponse(Response.Status.OK, "image/jpeg", java.io.ByteArrayInputStream(bytes), bytes.size.toLong())
+        response.addHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+        response.addHeader("Pragma", "no-cache")
+        response.addHeader("Expires", "0")
+        return response
     }
 
     private fun verifyBearer(session: IHTTPSession): Boolean {

@@ -183,6 +183,15 @@ class MqttManager(
         }
         publishString("homeassistant/camera/kl8wall_$deviceName/camera/config", cameraConfig.toString(), retain = true)
 
+        // Screenshot Camera
+        val screenshotConfig = JSONObject().apply {
+            put("name", "Screenshot")
+            put("unique_id", "kl8wall_${deviceName}_screenshot")
+            put("topic", "kl8wall/$deviceName/screenshot/image")
+            put("device", deviceJson)
+        }
+        publishString("homeassistant/camera/kl8wall_$deviceName/screenshot/config", screenshotConfig.toString(), retain = true)
+
         // Buttons
         fun pubBtn(id: String, name: String, devClass: String = "") {
             val cfg = JSONObject().apply {
@@ -196,6 +205,7 @@ class MqttManager(
         }
         pubBtn("reload", "Reload Dashboard", "restart")
         pubBtn("snapshot", "Trigger Photo")
+        pubBtn("screenshot", "Trigger Screenshot")
         pubBtn("settings", "Open Settings")
         pubBtn("reboot", "Reboot App", "restart")
 
@@ -290,7 +300,8 @@ class MqttManager(
             "kl8wall/$deviceName/presence_timeout/cmd",
             "kl8wall/$deviceName/tts_volume/cmd",
             "kl8wall/$deviceName/app_foreground/cmd",
-            "kl8wall/$deviceName/camera_streaming/cmd"
+            "kl8wall/$deviceName/camera_streaming/cmd",
+            "kl8wall/$deviceName/screenshot/cmd"
         )
         val qos = IntArray(topics.size) { 1 }
 
@@ -367,6 +378,17 @@ class MqttManager(
                         } else if (payload.uppercase() == "OFF") {
                             app?.cameraManager?.isStreamingEnabled = false
                             publishCameraStreamingState(deviceName, false)
+                        }
+                    }
+                    "kl8wall/$deviceName/screenshot/cmd" -> {
+                        val app = context as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        if (app != null) {
+                            scope.launch {
+                                val bytes = app.captureCurrentScreen()
+                                if (bytes != null) {
+                                    publishBytes("kl8wall/$deviceName/screenshot/image", bytes, retain = false)
+                                }
+                            }
                         }
                     }
                 }
