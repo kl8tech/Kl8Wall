@@ -610,14 +610,22 @@ private fun KioskWebViewContainer(
                     webChromeClient = object : android.webkit.WebChromeClient() {
                         override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
                             request?.let {
-                                if (it.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
-                                    if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                                        it.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
-                                    } else {
-                                        it.deny()
+                                val grantedResources = mutableListOf<String>()
+                                for (res in it.resources) {
+                                    if (res == android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE) {
+                                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                            grantedResources.add(res)
+                                        }
+                                    } else if (res == android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE) {
+                                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                            grantedResources.add(res)
+                                        }
                                     }
+                                }
+                                if (grantedResources.isNotEmpty()) {
+                                    it.grant(grantedResources.toTypedArray())
                                 } else {
-                                    it.grant(it.resources)
+                                    it.deny()
                                 }
                             }
                         }
