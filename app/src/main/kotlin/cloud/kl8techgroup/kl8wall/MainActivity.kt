@@ -100,10 +100,6 @@ class MainActivity : ComponentActivity() {
             val app = application as? KL8WallApplication
             app?.cameraManager?.start()
         }
-        val app = application as? KL8WallApplication
-        if (app != null && !app.settingsRepository.isFirstRun.value) {
-            kioskLockManager.lock(this)
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
