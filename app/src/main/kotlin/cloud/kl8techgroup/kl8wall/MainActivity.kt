@@ -668,19 +668,25 @@ private fun KioskWebViewContainer(
                         }
 
                         override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                            android.util.Log.d("MainActivity", "onPermissionRequest: resources = ${request?.resources?.joinToString()}")
                             request?.let {
                                 val grantedResources = mutableListOf<String>()
                                 for (res in it.resources) {
                                     if (res == android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE) {
-                                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                        val hasAudio = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        android.util.Log.d("MainActivity", "onPermissionRequest: RECORD_AUDIO permission state = $hasAudio")
+                                        if (hasAudio) {
                                             grantedResources.add(res)
                                         }
                                     } else if (res == android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE) {
-                                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                        val hasVideo = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        android.util.Log.d("MainActivity", "onPermissionRequest: CAMERA permission state = $hasVideo")
+                                        if (hasVideo) {
                                             grantedResources.add(res)
                                         }
                                     }
                                 }
+                                android.util.Log.d("MainActivity", "onPermissionRequest: granting resources = $grantedResources")
                                 if (grantedResources.isNotEmpty()) {
                                     it.grant(grantedResources.toTypedArray())
                                 } else {
