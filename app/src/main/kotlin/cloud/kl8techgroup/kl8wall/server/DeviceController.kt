@@ -110,4 +110,7 @@ interface DeviceController {
 
     /** Get latest relative humidity sensor reading in %. */
     fun getHumidity(): Float
+
+    /** Clear WebView cache and WebStorage data. */
+    fun clearCache()
 }

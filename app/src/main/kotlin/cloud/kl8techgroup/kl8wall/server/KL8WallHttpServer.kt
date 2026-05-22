@@ -74,6 +74,13 @@ class KL8WallHttpServer(
         "POST /api/update/check" -> handleCheckUpdate()
         "POST /api/update/install" -> handleInstallUpdate()
         "GET /api/update/status" -> handleUpdateStatus()
+        "POST /api/cast" -> handleCast(session)
+        "POST /api/cast/control" -> handleCastControl(session)
+        "POST /api/cast/volume" -> handleCastVolume(session)
+        "GET /api/cast/status" -> handleCastStatus()
+        "POST /api/lock" -> handleLock()
+        "POST /api/unlock" -> handleUnlock()
+        "POST /api/reboot" -> withController { handleReboot(it) }
         else -> errorResponse(Response.Status.NOT_FOUND, "Not found")
     }
 
@@ -85,15 +92,94 @@ class KL8WallHttpServer(
 
     private fun handleStatus(): Response = withController { controller ->
         val mqtt = KL8WallApplication.instance.mqttManager
+        val lockManager = KL8WallApplication.instance.passcodeLockManager
         val status = StatusResponse(
             screenOn = controller.isScreenOn(),
             currentUrl = controller.getCurrentUrl(),
             lockState = controller.getLockState(),
             version = BuildConfig.VERSION_NAME,
             mqttConnected = mqtt?.isConnected(),
-            mqttError = mqtt?.lastError?.value
+            mqttError = mqtt?.lastError?.value,
+            passcodeLocked = lockManager?.isLocked?.value ?: false
         )
         jsonResponse(Response.Status.OK, json.encodeToString(StatusResponse.serializer(), status))
+    }
+
+    private fun handleCast(session: IHTTPSession): Response {
+        val body = readBody(session)
+        val request = try {
+            json.decodeFromString(CastRequest.serializer(), body)
+        } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Invalid JSON body, expected {\"url\": \"...\"}")
+        }
+        val castManager = KL8WallApplication.instance.castManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Cast manager not ready")
+        castManager.cast(request.url)
+        return successResponse()
+    }
+
+    private fun handleCastControl(session: IHTTPSession): Response {
+        val body = readBody(session)
+        val request = try {
+            json.decodeFromString(CastControlRequest.serializer(), body)
+        } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Invalid JSON body, expected {\"command\": \"...\", \"position\": null}")
+        }
+        val castManager = KL8WallApplication.instance.castManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Cast manager not ready")
+        when (request.command.uppercase()) {
+            "PLAY" -> castManager.play()
+            "PAUSE" -> castManager.pause()
+            "STOP" -> castManager.stop()
+            "SEEK" -> castManager.seek(request.position ?: 0)
+            else -> return errorResponse(Response.Status.BAD_REQUEST, "Unknown cast command: ${request.command}")
+        }
+        return successResponse()
+    }
+
+    private fun handleCastVolume(session: IHTTPSession): Response {
+        val body = readBody(session)
+        val request = try {
+            json.decodeFromString(VolumeRequest.serializer(), body)
+        } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Invalid JSON body, expected {\"volume\": 0-100}")
+        }
+        val castManager = KL8WallApplication.instance.castManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Cast manager not ready")
+        castManager.setVolume(request.volume)
+        return successResponse()
+    }
+
+    private fun handleCastStatus(): Response {
+        val castManager = KL8WallApplication.instance.castManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Cast manager not ready")
+        val status = CastStatusResponse(
+            url = castManager.castUrl.value,
+            playbackState = castManager.playbackState.value,
+            duration = castManager.duration.value,
+            position = castManager.position.value,
+            volume = castManager.volume.value
+        )
+        return jsonResponse(Response.Status.OK, json.encodeToString(CastStatusResponse.serializer(), status))
+    }
+
+    private fun handleLock(): Response {
+        val lockManager = KL8WallApplication.instance.passcodeLockManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Passcode lock manager not ready")
+        lockManager.lock()
+        return successResponse()
+    }
+
+    private fun handleUnlock(): Response {
+        val lockManager = KL8WallApplication.instance.passcodeLockManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Passcode lock manager not ready")
+        lockManager.unlock()
+        return successResponse()
+    }
+
+    private fun handleReboot(controller: DeviceController): Response {
+        controller.rebootApp()
+        return successResponse()
     }
 
     private fun handleConfig(): Response {

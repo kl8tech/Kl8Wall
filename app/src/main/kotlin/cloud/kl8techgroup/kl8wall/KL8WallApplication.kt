@@ -18,6 +18,10 @@ import cloud.kl8techgroup.kl8wall.camera.CameraManager
 import cloud.kl8techgroup.kl8wall.system.PresenceSensorManager
 import cloud.kl8techgroup.kl8wall.bluetooth.BluetoothProxyServer
 import cloud.kl8techgroup.kl8wall.system.OtaManager
+import cloud.kl8techgroup.kl8wall.cast.CastManager
+import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockManager
+import cloud.kl8techgroup.kl8wall.system.KL8WallService
+import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -78,6 +82,10 @@ class KL8WallApplication : Application() {
         private set
     var intercomManager: cloud.kl8techgroup.kl8wall.intercom.IntercomManager? = null
         private set
+    var castManager: CastManager? = null
+        private set
+    var passcodeLockManager: PasscodeLockManager? = null
+        private set
 
     var isAppInForeground: Boolean = false
         private set
@@ -96,6 +104,7 @@ class KL8WallApplication : Application() {
         brightnessController = BrightnessController(this)
         ttsController = TtsController(this)
         otaManager = OtaManager(this)
+        passcodeLockManager = PasscodeLockManager(settingsRepository)
 
         registerNetworkCallback()
 
@@ -244,6 +253,11 @@ class KL8WallApplication : Application() {
     fun startServices(activity: androidx.activity.ComponentActivity, devController: DeviceController) {
         if (mqttManager != null) return
 
+        val serviceIntent = Intent(this, KL8WallService::class.java)
+        androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent)
+
+        castManager = CastManager(this)
+
         val intercom = cloud.kl8techgroup.kl8wall.intercom.IntercomManager(this) { target, bytes ->
             mqttManager?.publishAudio(target, bytes)
         }
@@ -301,6 +315,10 @@ class KL8WallApplication : Application() {
      * Stop all background managers.
      */
     fun stopServices() {
+        castManager = null
+        val serviceIntent = Intent(this, KL8WallService::class.java)
+        stopService(serviceIntent)
+
         cameraManager?.stop()
         cameraManager = null
 
@@ -365,6 +383,27 @@ class KL8WallApplication : Application() {
                 continuation.resume(null)
             }
         }
+    }
+
+    fun rebootApplication() {
+        val intent = packageManager.getLaunchIntentForPackage(packageName)
+        if (intent != null) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                this,
+                123456,
+                intent,
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_CANCEL_CURRENT
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            alarmManager.setExact(
+                android.app.AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 1000,
+                pendingIntent
+            )
+        }
+        android.os.Process.killProcess(android.os.Process.myPid())
+        System.exit(0)
     }
 
     companion object {

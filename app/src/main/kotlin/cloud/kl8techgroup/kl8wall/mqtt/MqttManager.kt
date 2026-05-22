@@ -28,6 +28,9 @@ import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 import cloud.kl8techgroup.kl8wall.system.SslUtil
+import cloud.kl8techgroup.kl8wall.cast.CastManager
+import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockManager
+import cloud.kl8techgroup.kl8wall.system.PresenceSensorManager
 
 enum class MqttConnectionState {
     DISCONNECTED,
@@ -53,6 +56,7 @@ class MqttManager(
     private var currentConfig: MqttConfig? = null
     private var statusPublisherJob: Job? = null
     private var otaCollectorsJob: Job? = null
+    private var castAndLockCollectorsJob: Job? = null
     private var connectionJob: Job? = null
 
     private val _connectionState = MutableStateFlow(MqttConnectionState.DISCONNECTED)
@@ -117,6 +121,30 @@ class MqttManager(
                 handleConfigChange(config)
             }
         }
+
+        scope.launch {
+            // Wait for PresenceSensorManager to be initialized
+            var presence: PresenceSensorManager? = null
+            while (presence == null && isActive) {
+                presence = (context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication)?.presenceSensorManager
+                if (presence == null) {
+                    delay(500)
+                }
+            }
+            val presenceManager = presence ?: return@launch
+            
+            combine(
+                settingsRepository.sensorIntervalSeconds,
+                presenceManager.isLowPowerMode
+            ) { interval, lowPower ->
+                Pair(interval, lowPower)
+            }.collectLatest { (interval, lowPower) ->
+                val config = currentConfig ?: return@collectLatest
+                if (isConnected()) {
+                    startPeriodicStatusPublisher(config.deviceName)
+                }
+            }
+        }
     }
 
     fun stop() {
@@ -145,6 +173,8 @@ class MqttManager(
         statusPublisherJob = null
         otaCollectorsJob?.cancel()
         otaCollectorsJob = null
+        castAndLockCollectorsJob?.cancel()
+        castAndLockCollectorsJob = null
         _connectionState.value = MqttConnectionState.DISCONNECTED
         val client = mqttClient
         if (client != null) {
@@ -222,6 +252,7 @@ class MqttManager(
                             subscribeToCommands(config.deviceName)
                             startPeriodicStatusPublisher(config.deviceName)
                             startOtaStateCollectors(config.deviceName)
+                            startCastAndLockCollectors(config.deviceName)
                         }
                         override fun connectionLost(cause: Throwable?) {
                             Log.w(TAG, "MQTT connection lost: ${cause?.message}")
@@ -449,6 +480,51 @@ class MqttManager(
 
         pubBtn("check_update", "Check Update")
         pubBtn("trigger_update", "Install Update")
+
+        // Cast URL Command (Text)
+        val castUrlConfig = JSONObject().apply {
+            put("name", "Cast URL")
+            put("unique_id", "kl8wall_${deviceName}_cast_url")
+            put("command_topic", "kl8wall/$deviceName/cast_url/cmd")
+            put("state_topic", "kl8wall/$deviceName/cast_url/state")
+            put("mode", "text")
+            put("device", deviceJson)
+        }
+        publishString("homeassistant/text/kl8wall_$deviceName/cast_url/config", castUrlConfig.toString(), retain = true)
+
+        // Cast Volume Command/State (Number)
+        val castVolumeConfig = JSONObject().apply {
+            put("name", "Cast Volume")
+            put("unique_id", "kl8wall_${deviceName}_cast_volume")
+            put("command_topic", "kl8wall/$deviceName/cast_volume/cmd")
+            put("state_topic", "kl8wall/$deviceName/cast_volume/state")
+            put("min", 0)
+            put("max", 100)
+            put("unit_of_measurement", "%")
+            put("device", deviceJson)
+        }
+        publishString("homeassistant/number/kl8wall_$deviceName/cast_volume/config", castVolumeConfig.toString(), retain = true)
+
+        // Cast Sensors
+        pubSens("cast_playback_state", "Cast Playback State", "", "", "")
+        pubSens("cast_position", "Cast Position", "s", "duration", "measurement")
+        pubSens("cast_duration", "Cast Duration", "s", "duration", "measurement")
+        pubSens("cast_current_url", "Cast Current URL", "", "", "")
+
+        // Cast Buttons
+        pubBtn("cast_play", "Cast Play")
+        pubBtn("cast_pause", "Cast Pause")
+        pubBtn("cast_stop", "Cast Stop")
+
+        // Passcode Lock Entity
+        val lockConfig = JSONObject().apply {
+            put("name", "Passcode Lock")
+            put("unique_id", "kl8wall_${deviceName}_lock")
+            put("command_topic", "kl8wall/$deviceName/lock/cmd")
+            put("state_topic", "kl8wall/$deviceName/lock/state")
+            put("device", deviceJson)
+        }
+        publishString("homeassistant/lock/kl8wall_$deviceName/lock/config", lockConfig.toString(), retain = true)
     }
 
     private fun subscribeToCommands(deviceName: String) {
@@ -471,7 +547,13 @@ class MqttManager(
             "kl8wall/$deviceName/trigger_update/cmd",
             "kl8wall/$deviceName/update/cmd",
             "kl8wall/$deviceName/intercom/cmd",
-            "kl8wall/$deviceName/audio_rx"
+            "kl8wall/$deviceName/audio_rx",
+            "kl8wall/$deviceName/cast_url/cmd",
+            "kl8wall/$deviceName/cast_volume/cmd",
+            "kl8wall/$deviceName/cast_play/cmd",
+            "kl8wall/$deviceName/cast_pause/cmd",
+            "kl8wall/$deviceName/cast_stop/cmd",
+            "kl8wall/$deviceName/lock/cmd"
         )
         val qos = IntArray(topics.size) { 1 }
 
@@ -581,6 +663,37 @@ class MqttManager(
                             }
                         }
                     }
+                    "kl8wall/$deviceName/cast_url/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        app?.castManager?.cast(payload)
+                    }
+                    "kl8wall/$deviceName/cast_volume/cmd" -> {
+                        val vol = payload.toIntOrNull()
+                        if (vol != null) {
+                            val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                            app?.castManager?.setVolume(vol)
+                        }
+                    }
+                    "kl8wall/$deviceName/cast_play/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        app?.castManager?.play()
+                    }
+                    "kl8wall/$deviceName/cast_pause/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        app?.castManager?.pause()
+                    }
+                    "kl8wall/$deviceName/cast_stop/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        app?.castManager?.stop()
+                    }
+                    "kl8wall/$deviceName/lock/cmd" -> {
+                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                        if (payload.uppercase() == "LOCK") {
+                            app?.passcodeLockManager?.lock()
+                        } else if (payload.uppercase() == "UNLOCK") {
+                            app?.passcodeLockManager?.unlock()
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing command on $topic: $payload", e)
@@ -591,9 +704,13 @@ class MqttManager(
     private fun startPeriodicStatusPublisher(deviceName: String) {
         statusPublisherJob?.cancel()
         statusPublisherJob = scope.launch {
+            val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+            val presence = app?.presenceSensorManager
             while (isActive) {
                 publishDeviceStates(deviceName)
-                delay(30000)
+                val isLowPower = presence?.isLowPowerMode?.value ?: false
+                val intervalSeconds = if (isLowPower) 300 else settingsRepository.sensorIntervalSeconds.value
+                delay(intervalSeconds * 1000L)
             }
         }
     }
@@ -691,6 +808,51 @@ class MqttManager(
             client.publish(topic, mqttMessage, null, null)
         } catch (e: Exception) {
             Log.e(TAG, "Error publishing to topic $topic", e)
+        }
+    }
+
+    private fun startCastAndLockCollectors(deviceName: String) {
+        castAndLockCollectorsJob?.cancel()
+        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication ?: return
+        val cast = app.castManager
+        val lock = app.passcodeLockManager
+
+        castAndLockCollectorsJob = scope.launch {
+            if (cast != null) {
+                launch {
+                    cast.castUrl.collect { url ->
+                        publishString("kl8wall/$deviceName/cast_url/state", url ?: "", true)
+                        publishString("kl8wall/$deviceName/cast_current_url/state", url ?: "", true)
+                    }
+                }
+                launch {
+                    cast.volume.collect { vol ->
+                        publishString("kl8wall/$deviceName/cast_volume/state", vol.toString(), true)
+                    }
+                }
+                launch {
+                    cast.playbackState.collect { state ->
+                        publishString("kl8wall/$deviceName/cast_playback_state/state", state, true)
+                    }
+                }
+                launch {
+                    cast.position.collect { pos ->
+                        publishString("kl8wall/$deviceName/cast_position/state", pos.toString(), true)
+                    }
+                }
+                launch {
+                    cast.duration.collect { dur ->
+                        publishString("kl8wall/$deviceName/cast_duration/state", dur.toString(), true)
+                    }
+                }
+            }
+            if (lock != null) {
+                launch {
+                    lock.isLocked.collect { isLocked ->
+                        publishString("kl8wall/$deviceName/lock/state", if (isLocked) "LOCKED" else "UNLOCKED", true)
+                    }
+                }
+            }
         }
     }
 

@@ -52,6 +52,16 @@ class SettingsRepository(context: Context) {
     private val _mediaPlaybackRequiresGesture = MutableStateFlow(
         prefs.getBoolean(KEY_MEDIA_GESTURE, false)
     )
+    private val _screenAlwaysOn = MutableStateFlow(prefs.getBoolean(KEY_SCREEN_ALWAYS_ON, true))
+    private val _ignoreSslErrors = MutableStateFlow(prefs.getBoolean(KEY_IGNORE_SSL_ERRORS, true))
+    private val _micShimEnabled = MutableStateFlow(prefs.getBoolean(KEY_MIC_SHIM_ENABLED, true))
+    private val _autoWakeOnPower = MutableStateFlow(prefs.getBoolean(KEY_AUTO_WAKE_ON_POWER, true))
+    private val _mdnsEnabled = MutableStateFlow(prefs.getBoolean(KEY_MDNS_ENABLED, true))
+    private val _sensorIntervalSeconds = MutableStateFlow(prefs.getInt(KEY_SENSOR_INTERVAL_SECONDS, 30))
+    private val _autoBrightnessEnabled = MutableStateFlow(prefs.getBoolean(KEY_AUTO_BRIGHTNESS_ENABLED, true))
+    private val _lowPowerModeEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOW_POWER_MODE_ENABLED, true))
+    private val _minBrightnessPercent = MutableStateFlow(prefs.getInt(KEY_MIN_BRIGHTNESS_PERCENT, 10))
+    private val _manualBrightnessPercent = MutableStateFlow(prefs.getInt(KEY_MANUAL_BRIGHTNESS_PERCENT, 70))
 
     /** Unique device name for MQTT topics and mDNS hostnames. */
     val deviceName: StateFlow<String> = _deviceName.asStateFlow()
@@ -111,6 +121,36 @@ class SettingsRepository(context: Context) {
 
     /** Whether media playback requires a user gesture. */
     val mediaPlaybackRequiresGesture: StateFlow<Boolean> = _mediaPlaybackRequiresGesture.asStateFlow()
+
+    /** Whether screen is kept always on. */
+    val screenAlwaysOn: StateFlow<Boolean> = _screenAlwaysOn.asStateFlow()
+
+    /** Whether SSL validation errors are bypassed in WebView. */
+    val ignoreSslErrors: StateFlow<Boolean> = _ignoreSslErrors.asStateFlow()
+
+    /** Whether microphone access JavaScript shim is injected in WebView. */
+    val micShimEnabled: StateFlow<Boolean> = _micShimEnabled.asStateFlow()
+
+    /** Whether screen wakes up on charger connection events. */
+    val autoWakeOnPower: StateFlow<Boolean> = _autoWakeOnPower.asStateFlow()
+
+    /** Whether mDNS service advertisement is enabled. */
+    val mdnsEnabled: StateFlow<Boolean> = _mdnsEnabled.asStateFlow()
+
+    /** Publishing interval in seconds for device sensors. */
+    val sensorIntervalSeconds: StateFlow<Int> = _sensorIntervalSeconds.asStateFlow()
+
+    /** Whether display brightness is dynamically scaled by ambient light. */
+    val autoBrightnessEnabled: StateFlow<Boolean> = _autoBrightnessEnabled.asStateFlow()
+
+    /** Whether low power kiosk sleep (dim display + pause webview) is enabled. */
+    val lowPowerModeEnabled: StateFlow<Boolean> = _lowPowerModeEnabled.asStateFlow()
+
+    /** Minimum brightness floor when in low-light auto-brightness. */
+    val minBrightnessPercent: StateFlow<Int> = _minBrightnessPercent.asStateFlow()
+
+    /** Static manual brightness percentage when auto-brightness is disabled. */
+    val manualBrightnessPercent: StateFlow<Int> = _manualBrightnessPercent.asStateFlow()
 
     init {
         if (_httpBearerToken.value.isEmpty()) {
@@ -250,6 +290,56 @@ class SettingsRepository(context: Context) {
         _mediaPlaybackRequiresGesture.value = required
     }
 
+    fun setScreenAlwaysOn(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SCREEN_ALWAYS_ON, enabled).apply()
+        _screenAlwaysOn.value = enabled
+    }
+
+    fun setIgnoreSslErrors(ignore: Boolean) {
+        prefs.edit().putBoolean(KEY_IGNORE_SSL_ERRORS, ignore).apply()
+        _ignoreSslErrors.value = ignore
+    }
+
+    fun setMicShimEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MIC_SHIM_ENABLED, enabled).apply()
+        _micShimEnabled.value = enabled
+    }
+
+    fun setAutoWakeOnPower(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_WAKE_ON_POWER, enabled).apply()
+        _autoWakeOnPower.value = enabled
+    }
+
+    fun setMdnsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MDNS_ENABLED, enabled).apply()
+        _mdnsEnabled.value = enabled
+    }
+
+    fun setSensorIntervalSeconds(seconds: Int) {
+        prefs.edit().putInt(KEY_SENSOR_INTERVAL_SECONDS, seconds).apply()
+        _sensorIntervalSeconds.value = seconds
+    }
+
+    fun setAutoBrightnessEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_BRIGHTNESS_ENABLED, enabled).apply()
+        _autoBrightnessEnabled.value = enabled
+    }
+
+    fun setLowPowerModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LOW_POWER_MODE_ENABLED, enabled).apply()
+        _lowPowerModeEnabled.value = enabled
+    }
+
+    fun setMinBrightnessPercent(percent: Int) {
+        prefs.edit().putInt(KEY_MIN_BRIGHTNESS_PERCENT, percent).apply()
+        _minBrightnessPercent.value = percent
+    }
+
+    fun setManualBrightnessPercent(percent: Int) {
+        prefs.edit().putInt(KEY_MANUAL_BRIGHTNESS_PERCENT, percent).apply()
+        _manualBrightnessPercent.value = percent
+    }
+
     private fun generateAndStoreHttpBearerToken() {
         val bytes = ByteArray(TOKEN_BYTE_LENGTH)
         SecureRandom().nextBytes(bytes)
@@ -294,6 +384,16 @@ class SettingsRepository(context: Context) {
         private const val KEY_PIN_SALT = "pin_salt"
         private const val KEY_FIRST_RUN = "first_run"
         private const val KEY_MEDIA_GESTURE = "media_playback_requires_gesture"
+        private const val KEY_SCREEN_ALWAYS_ON = "screen_always_on"
+        private const val KEY_IGNORE_SSL_ERRORS = "ignore_ssl_errors"
+        private const val KEY_MIC_SHIM_ENABLED = "mic_shim_enabled"
+        private const val KEY_AUTO_WAKE_ON_POWER = "auto_wake_on_power"
+        private const val KEY_MDNS_ENABLED = "mdns_enabled"
+        private const val KEY_SENSOR_INTERVAL_SECONDS = "sensor_interval_seconds"
+        private const val KEY_AUTO_BRIGHTNESS_ENABLED = "auto_brightness_enabled"
+        private const val KEY_LOW_POWER_MODE_ENABLED = "low_power_mode_enabled"
+        private const val KEY_MIN_BRIGHTNESS_PERCENT = "min_brightness_percent"
+        private const val KEY_MANUAL_BRIGHTNESS_PERCENT = "manual_brightness_percent"
         private const val DEFAULT_HTTP_PORT = 8127
         private const val TOKEN_BYTE_LENGTH = 32
 

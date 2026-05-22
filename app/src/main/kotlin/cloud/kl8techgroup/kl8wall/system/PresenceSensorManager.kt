@@ -11,6 +11,9 @@ import cloud.kl8techgroup.kl8wall.mqtt.MqttManager
 import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.abs
 
 class PresenceSensorManager(
@@ -38,6 +41,9 @@ class PresenceSensorManager(
     var isPresent = false
         private set
     private var timeoutJob: Job? = null
+
+    private val _isLowPowerMode = MutableStateFlow(false)
+    val isLowPowerMode: StateFlow<Boolean> = _isLowPowerMode.asStateFlow()
     
     // Exposed sensor readings
     var latestLux = 0.0f
@@ -78,6 +84,12 @@ class PresenceSensorManager(
                 }
             }
         }
+
+        scope.launch {
+            settingsRepository.lowPowerModeEnabled.collectLatest {
+                evaluateLowPowerMode()
+            }
+        }
     }
 
     fun stop() {
@@ -110,6 +122,23 @@ class PresenceSensorManager(
         Log.i(TAG, "Unregistering hardware sensors")
         sensorManager.unregisterListener(this)
         lastLux = null
+    }
+
+    fun evaluateLowPowerMode() {
+        val enabled = settingsRepository.lowPowerModeEnabled.value
+        val shouldLowPower = enabled && !isPresent && latestLux < 2.0f
+        if (_isLowPowerMode.value != shouldLowPower) {
+            _isLowPowerMode.value = shouldLowPower
+            Log.i(TAG, "Low Power Mode changed: $shouldLowPower (enabled=$enabled, isPresent=$isPresent, lux=$latestLux)")
+        }
+    }
+
+    fun mapLuxToBrightness(lux: Float, minPercent: Int): Int {
+        val clampedLux = lux.coerceIn(1.0f, 500.0f)
+        val logLux = kotlin.math.log10(clampedLux.toDouble())
+        val logMax = kotlin.math.log10(500.0)
+        val percent = minPercent + (logLux / logMax * (100 - minPercent))
+        return percent.toInt().coerceIn(minPercent, 100)
     }
 
     /**
@@ -157,12 +186,14 @@ class PresenceSensorManager(
                     deviceController.screenOn()
                 }
             } else {
-                if (deviceController.isScreenOn()) {
+                if (!settingsRepository.screenAlwaysOn.value && deviceController.isScreenOn()) {
                     Log.i(TAG, "Turning off screen due to presence timeout")
                     deviceController.screenOff()
                 }
             }
         }
+
+        evaluateLowPowerMode()
     }
 
     private fun resetTimeout() {
@@ -192,6 +223,7 @@ class PresenceSensorManager(
                         triggerPresence("proximity")
                     }
                 }
+                evaluateLowPowerMode()
             }
             
             Sensor.TYPE_LIGHT -> {
@@ -207,6 +239,16 @@ class PresenceSensorManager(
                     }
                 }
                 lastLux = currentLux
+
+                // Add auto-brightness and low-power evaluation
+                if (settingsRepository.autoBrightnessEnabled.value && !_isLowPowerMode.value) {
+                    val minPct = settingsRepository.minBrightnessPercent.value
+                    val targetBrightness = mapLuxToBrightness(currentLux, minPct)
+                    scope.launch(Dispatchers.Main) {
+                        deviceController.setBrightness(targetBrightness)
+                    }
+                }
+                evaluateLowPowerMode()
             }
 
             Sensor.TYPE_PRESSURE -> {

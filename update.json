@@ -1,6 +1,6 @@
 {
-  "version": "2.0.33",
-  "versionCode": 35,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.33/kl8wall-v35.apk",
-  "changelog": "Release v2.0.33 - Please see GitHub release notes for details."
+  "version": "2.0.34",
+  "versionCode": 36,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.34/kl8wall-v36.apk",
+  "changelog": "Release v2.0.34 - Add casting receiver overlays, passcode lock screen control overlays, insecure audio mic shims, presence-based auto-brightness, background throttling, foreground service persistence, and premium settings cards."
 }

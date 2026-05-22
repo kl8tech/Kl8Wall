@@ -39,6 +39,7 @@ class KioskWebView @JvmOverloads constructor(
     fun initBridge(startUrl: String, allowedHosts: Set<String>) {
         setupCookies()
         setupUserAgent(startUrl)
+        addJavascriptInterface(WebViewAudioShim(this), "Kl8WallAudio")
 
         // Removed ExternalApp injection. We don't want HA to attempt Companion App
         // external auth because we are using standard web auth and MQTT for sensors.

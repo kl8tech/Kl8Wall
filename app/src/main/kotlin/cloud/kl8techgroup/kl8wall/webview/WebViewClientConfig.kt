@@ -19,6 +19,8 @@ import android.webkit.WebViewClient
 class WebViewClientConfig(
     private val authInterceptor: AuthInterceptor,
     private val allowedHosts: () -> Set<String>,
+    private val ignoreSslErrors: () -> Boolean = { true },
+    private val micShimEnabled: () -> Boolean = { true },
     private val onPageLoaded: (String) -> Unit = {},
     private val onNavigationBlocked: (String) -> Unit = {},
     private val onError: (Int, String) -> Unit = { _, _ -> }
@@ -41,6 +43,9 @@ class WebViewClientConfig(
     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         view.evaluateJavascript(ERROR_LOGGER_JS, null)
+        if (micShimEnabled()) {
+            view.evaluateJavascript(MICROPHONE_SHIM_JS, null)
+        }
     }
 
     override fun onPageFinished(view: WebView, url: String?) {
@@ -50,12 +55,18 @@ class WebViewClientConfig(
         view.evaluateJavascript(DISABLE_SELECTION_JS, null)
         view.evaluateJavascript(DEBUG_DOM_JS, null)
         view.evaluateJavascript(DEBUG_BANNER_JS, null)
+        if (micShimEnabled()) {
+            view.evaluateJavascript(MICROPHONE_SHIM_JS, null)
+        }
     }
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
         try {
-            // Trust all SSL certificates for now to ensure local Home Assistant IPs don't throw blank screens
-            handler.proceed()
+            if (ignoreSslErrors()) {
+                handler.proceed()
+            } else {
+                handler.cancel()
+            }
         } catch (e: Exception) {
             handler.cancel()
         }
@@ -260,6 +271,113 @@ class WebViewClientConfig(
                     }
                 }
             }, 7000);
+        """
+
+        private const val MICROPHONE_SHIM_JS = """
+            (function() {
+                if (window.__kl8wall_mic_shim_installed) return;
+                window.__kl8wall_mic_shim_installed = true;
+                console.log('[KL8Wall-MIC] Installing microphone shim for HTTP...');
+
+                try {
+                    Object.defineProperty(window, 'isSecureContext', {
+                        get: function() { return true; }
+                    });
+                } catch (e) {
+                    console.error('[KL8Wall-MIC] Failed to override isSecureContext', e);
+                }
+
+                if (!navigator.mediaDevices) {
+                    Object.defineProperty(navigator, 'mediaDevices', {
+                        value: {},
+                        writable: true,
+                        configurable: true
+                    });
+                }
+
+                let audioQueue = [];
+
+                window.__kl8wall_on_audio_data = function(base64Data) {
+                    try {
+                        let binaryString = window.atob(base64Data);
+                        let len = binaryString.length;
+                        let bytes = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        let int16Array = new Int16Array(bytes.buffer);
+                        let float32Array = new Float32Array(int16Array.length);
+                        for (let i = 0; i < int16Array.length; i++) {
+                            float32Array[i] = int16Array[i] / 32768.0;
+                        }
+                        audioQueue.push(float32Array);
+                    } catch (e) {
+                        console.error('[KL8Wall-MIC] Error processing audio data', e);
+                    }
+                };
+
+                navigator.mediaDevices.getUserMedia = function(constraints) {
+                    console.log('[KL8Wall-MIC] getUserMedia called');
+                    return new Promise(function(resolve, reject) {
+                        try {
+                            let AudioCtx = window.AudioContext || window.webkitAudioContext;
+                            let audioCtx = new AudioCtx();
+                            let sampleRate = audioCtx.sampleRate;
+
+                            if (window.Kl8WallAudio) {
+                                window.Kl8WallAudio.startRecording(sampleRate);
+                            } else {
+                                console.error('[KL8Wall-MIC] Kl8WallAudio JS interface not found');
+                            }
+
+                            let processor = audioCtx.createScriptProcessor(4096, 0, 1);
+                            
+                            processor.onaudioprocess = function(e) {
+                                let outputBuffer = e.outputBuffer;
+                                let channelData = outputBuffer.getChannelData(0);
+                                
+                                if (audioQueue.length > 0) {
+                                    let chunk = audioQueue.shift();
+                                    let copyLen = Math.min(chunk.length, channelData.length);
+                                    for (let i = 0; i < copyLen; i++) {
+                                        channelData[i] = chunk[i];
+                                    }
+                                    if (chunk.length > channelData.length) {
+                                        audioQueue.unshift(chunk.subarray(channelData.length));
+                                    }
+                                } else {
+                                    channelData.fill(0);
+                                }
+                            };
+
+                            let destination = audioCtx.createMediaStreamDestination();
+                            processor.connect(destination);
+
+                            let stream = destination.stream;
+                            let tracks = stream.getAudioTracks();
+                            if (tracks.length > 0) {
+                                let track = tracks[0];
+                                let originalStop = track.stop;
+                                track.stop = function() {
+                                    console.log('[KL8Wall-MIC] track.stop called');
+                                    if (window.Kl8WallAudio) {
+                                        window.Kl8WallAudio.stopRecording();
+                                    }
+                                    audioCtx.close();
+                                    if (originalStop) {
+                                        originalStop.call(track);
+                                    }
+                                };
+                            }
+
+                            resolve(stream);
+                        } catch (err) {
+                            console.error('[KL8Wall-MIC] Error in getUserMedia shim:', err);
+                            reject(err);
+                        }
+                    });
+                };
+            })();
         """
     }
 }

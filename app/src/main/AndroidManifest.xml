@@ -38,6 +38,11 @@
     <!-- OTA Package Installer -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Foreground Service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".KL8WallApplication"
         android:allowBackup="false"
@@ -102,6 +107,16 @@
                 <action android:name="cloud.kl8techgroup.kl8wall.OTA_INSTALL_STATUS" />
             </intent-filter>
         </receiver>
+
+        <!-- Foreground Service -->
+        <service
+            android:name=".system.KL8WallService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="kiosk_local_server_and_mqtt_client" />
+        </service>
 
     </application>
 

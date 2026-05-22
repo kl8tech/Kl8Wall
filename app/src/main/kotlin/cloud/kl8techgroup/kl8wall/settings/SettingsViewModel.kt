@@ -24,6 +24,17 @@ class SettingsViewModel(
     val isFirstRun: StateFlow<Boolean> = repository.isFirstRun
     val mediaPlaybackRequiresGesture: StateFlow<Boolean> = repository.mediaPlaybackRequiresGesture
     
+    val screenAlwaysOn: StateFlow<Boolean> = repository.screenAlwaysOn
+    val ignoreSslErrors: StateFlow<Boolean> = repository.ignoreSslErrors
+    val micShimEnabled: StateFlow<Boolean> = repository.micShimEnabled
+    val autoWakeOnPower: StateFlow<Boolean> = repository.autoWakeOnPower
+    val mdnsEnabled: StateFlow<Boolean> = repository.mdnsEnabled
+    val sensorIntervalSeconds: StateFlow<Int> = repository.sensorIntervalSeconds
+    val autoBrightnessEnabled: StateFlow<Boolean> = repository.autoBrightnessEnabled
+    val lowPowerModeEnabled: StateFlow<Boolean> = repository.lowPowerModeEnabled
+    val minBrightnessPercent: StateFlow<Int> = repository.minBrightnessPercent
+    val manualBrightnessPercent: StateFlow<Int> = repository.manualBrightnessPercent
+    
     val deviceName: StateFlow<String> = repository.deviceName
     val mqttEnabled: StateFlow<Boolean> = repository.mqttEnabled
     val mqttBroker: StateFlow<String> = repository.mqttBroker
@@ -45,6 +56,17 @@ class SettingsViewModel(
     fun setPresenceSensorEnabled(enabled: Boolean) = repository.setPresenceSensorEnabled(enabled)
     fun setPresenceTimeoutSeconds(seconds: Int) = repository.setPresenceTimeoutSeconds(seconds)
     fun setCameraIntervalMinutes(minutes: Int) = repository.setCameraIntervalMinutes(minutes)
+
+    fun setScreenAlwaysOn(enabled: Boolean) = repository.setScreenAlwaysOn(enabled)
+    fun setIgnoreSslErrors(ignore: Boolean) = repository.setIgnoreSslErrors(ignore)
+    fun setMicShimEnabled(enabled: Boolean) = repository.setMicShimEnabled(enabled)
+    fun setAutoWakeOnPower(enabled: Boolean) = repository.setAutoWakeOnPower(enabled)
+    fun setMdnsEnabled(enabled: Boolean) = repository.setMdnsEnabled(enabled)
+    fun setSensorIntervalSeconds(seconds: Int) = repository.setSensorIntervalSeconds(seconds)
+    fun setAutoBrightnessEnabled(enabled: Boolean) = repository.setAutoBrightnessEnabled(enabled)
+    fun setLowPowerModeEnabled(enabled: Boolean) = repository.setLowPowerModeEnabled(enabled)
+    fun setMinBrightnessPercent(percent: Int) = repository.setMinBrightnessPercent(percent)
+    fun setManualBrightnessPercent(percent: Int) = repository.setManualBrightnessPercent(percent)
 
 
     fun setStartUrl(url: String) = repository.setStartUrl(url)

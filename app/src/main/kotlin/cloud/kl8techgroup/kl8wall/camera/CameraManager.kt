@@ -79,6 +79,30 @@ class CameraManager(
                 }
             }
         }
+
+        // Listen to low power mode flow to throttle camera usage
+        scope.launch {
+            val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+            // Wait for presenceSensorManager to be initialized
+            while (app?.presenceSensorManager == null && isActive) {
+                delay(100)
+            }
+            app?.presenceSensorManager?.isLowPowerMode?.collect { isLowPower ->
+                if (isLowPower) {
+                    Log.i(TAG, "Low power mode activated. Suspending camera streaming and periodic capture.")
+                    stopPeriodicCapture()
+                    stopStreaming()
+                } else {
+                    Log.i(TAG, "Low power mode deactivated. Resuming camera streaming and periodic capture if needed.")
+                    if (isStreamingEnabled) {
+                        startStreaming()
+                    }
+                    if (settingsRepository.presenceSensorEnabled.value) {
+                        startPeriodicCapture(settingsRepository.cameraIntervalMinutes.value)
+                    }
+                }
+            }
+        }
     }
 
     fun stop() {
@@ -89,8 +113,17 @@ class CameraManager(
         cameraExecutor.shutdown()
     }
 
+    private fun isLowPowerMode(): Boolean {
+        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+        return app?.presenceSensorManager?.isLowPowerMode?.value ?: false
+    }
+
     private fun startStreaming() {
         stopStreaming()
+        if (isLowPowerMode()) {
+            Log.i(TAG, "Low power mode is active. Deferring camera streaming.")
+            return
+        }
         Log.i(TAG, "Starting front camera live streaming")
         streamingJob = scope.launch {
             try {
@@ -115,6 +148,10 @@ class CameraManager(
     private fun startPeriodicCapture(intervalMinutes: Int) {
         stopPeriodicCapture()
         if (intervalMinutes <= 0) return
+        if (isLowPowerMode()) {
+            Log.i(TAG, "Low power mode is active. Deferring periodic capture.")
+            return
+        }
 
         Log.i(TAG, "Starting periodic front camera snapshot every $intervalMinutes minutes")
         periodicJob = scope.launch {

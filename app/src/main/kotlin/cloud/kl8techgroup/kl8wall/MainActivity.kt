@@ -31,8 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import cloud.kl8techgroup.kl8wall.cast.CastManager
+import cloud.kl8techgroup.kl8wall.cast.CastOverlay
 import cloud.kl8techgroup.kl8wall.kiosk.HotCornerDetector
 import cloud.kl8techgroup.kl8wall.kiosk.KioskLockManager
+import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockManager
+import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockOverlay
 import cloud.kl8techgroup.kl8wall.kiosk.PinGate
 import cloud.kl8techgroup.kl8wall.server.DeviceController
 import cloud.kl8techgroup.kl8wall.settings.FirstRunSetup
@@ -64,6 +68,9 @@ import java.net.Inet4Address
 import java.util.Collections
 import android.net.Uri
 import android.provider.Settings
+import androidx.lifecycle.lifecycleScope
+import android.content.BroadcastReceiver
+import kotlinx.coroutines.delay
 
 /**
  * Single activity hosting the kiosk WebView and Compose settings overlay.
@@ -89,6 +96,7 @@ class MainActivity : ComponentActivity() {
     private var clearCacheRequested = false
 
     private var isRequestingPermissions = false
+    private var powerStateReceiver: BroadcastReceiver? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -116,8 +124,46 @@ class MainActivity : ComponentActivity() {
         screenController = ScreenController(this)
         hotCornerDetector = HotCornerDetector(
             cornerProvider = { app.settingsRepository.hotCorner.value },
-            onTriggered = { _settingsRequested.value = true }
+            onTriggered = {
+                val locked = app.passcodeLockManager?.isLocked?.value ?: false
+                if (!locked) {
+                    _settingsRequested.value = true
+                }
+            }
         )
+
+        // Register power connection broadcast receiver
+        val powerFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+        }
+        powerStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent == null) return
+                val action = intent.action
+                if (action == Intent.ACTION_POWER_CONNECTED || action == Intent.ACTION_POWER_DISCONNECTED) {
+                    val app = application as KL8WallApplication
+                    if (app.settingsRepository.autoWakeOnPower.value) {
+                        Log.i("MainActivity", "Power state changed, waking up screen")
+                        screenController.screenOn(this@MainActivity)
+                    }
+                }
+            }
+        }
+        registerReceiver(powerStateReceiver, powerFilter)
+
+        // Collect isLowPowerMode flow from PresenceSensorManager
+        lifecycleScope.launch {
+            while (true) {
+                val pManager = app.presenceSensorManager
+                if (pManager != null) {
+                    pManager.isLowPowerMode.collect { lowPower ->
+                        handleLowPowerModeChange(lowPower)
+                    }
+                }
+                delay(1000)
+            }
+        }
 
         val permissions = mutableListOf(
             android.Manifest.permission.CAMERA,
@@ -280,6 +326,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        powerStateReceiver?.let {
+            unregisterReceiver(it)
+            powerStateReceiver = null
+        }
         val app = application as KL8WallApplication
         app.deviceController = null
         app.stopServices()
@@ -456,19 +506,7 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun rebootApp() {
-                mainHandler.post {
-                    try {
-                        Log.i("MainActivity", "Relaunching KL8Wall app...")
-                        val packageManager = activity.packageManager
-                        val intent = packageManager.getLaunchIntentForPackage(activity.packageName)
-                        val componentName = intent?.component
-                        val mainIntent = Intent.makeRestartActivityTask(componentName)
-                        activity.startActivity(mainIntent)
-                        Runtime.getRuntime().exit(0)
-                    } catch (e: Exception) {
-                        Log.e("MainActivity", "Failed to relaunch app", e)
-                    }
-                }
+                app.rebootApplication()
             }
 
             override fun getAmbientLight(): Float {
@@ -490,8 +528,43 @@ class MainActivity : ComponentActivity() {
             override fun getHumidity(): Float {
                 return app.presenceSensorManager?.latestHumidity ?: 0.0f
             }
+
+            override fun clearCache() {
+                mainHandler.post {
+                    kioskWebView?.clearCache(true)
+                    android.webkit.WebStorage.getInstance().deleteAllData()
+                    Log.i("MainActivity", "Cleared WebView cache & local storage data")
+                }
+            }
         }
     }
+
+    private fun handleLowPowerModeChange(lowPower: Boolean) {
+        val app = application as KL8WallApplication
+        if (lowPower) {
+            Log.i("MainActivity", "Entering low power sleep mode: pausing webview, dimming screen to 0%")
+            mainHandler.post {
+                kioskWebView?.onPause()
+                app.brightnessController.setBrightness(0)
+            }
+        } else {
+            Log.i("MainActivity", "Exiting low power sleep mode: resuming webview, restoring brightness")
+            mainHandler.post {
+                kioskWebView?.onResume()
+                val minPct = app.settingsRepository.minBrightnessPercent.value
+                val manualPct = app.settingsRepository.manualBrightnessPercent.value
+                val currentLux = app.presenceSensorManager?.latestLux ?: 0.0f
+                
+                val targetBrightness = if (app.settingsRepository.autoBrightnessEnabled.value) {
+                    app.presenceSensorManager?.mapLuxToBrightness(currentLux, minPct) ?: manualPct
+                } else {
+                    manualPct
+                }
+                app.brightnessController.setBrightness(targetBrightness)
+            }
+        }
+    }
+
     companion object {
         var hasRequestedPermissionsThisSession = false
     }
@@ -515,6 +588,20 @@ private fun KL8WallScreen(
     val settingsTriggered by settingsRequested.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val app = context.applicationContext as KL8WallApplication
+    var passcodeLockManager by remember { mutableStateOf<PasscodeLockManager?>(app.passcodeLockManager) }
+    var castManager by remember { mutableStateOf<CastManager?>(app.castManager) }
+    LaunchedEffect(Unit) {
+        while (passcodeLockManager == null || castManager == null) {
+            passcodeLockManager = app.passcodeLockManager
+            castManager = app.castManager
+            delay(500)
+        }
+    }
+
+    val isLocked by (passcodeLockManager?.isLocked?.collectAsState() ?: remember { mutableStateOf(false) })
+    val currentCastUrl by (castManager?.castUrl?.collectAsState() ?: remember { mutableStateOf(null) })
 
     var showPinGate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -576,6 +663,27 @@ private fun KL8WallScreen(
                         }
                     }
                 )
+
+                currentCastUrl?.let { url ->
+                    castManager?.let { manager ->
+                        CastOverlay(
+                            castUrl = url,
+                            castManager = manager,
+                            onClose = { manager.stop() },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+
+                passcodeLockManager?.let { lockMgr ->
+                    if (isLocked) {
+                        PasscodeLockOverlay(
+                            lockManager = lockMgr,
+                            isPinSet = isPinSet,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
         }
 
@@ -645,6 +753,8 @@ private fun KioskWebViewContainer(
                     webViewClient = WebViewClientConfig(
                         authInterceptor = interceptor,
                         allowedHosts = { viewModel.allowedHosts.value },
+                        ignoreSslErrors = { settingsRepo.ignoreSslErrors.value },
+                        micShimEnabled = { settingsRepo.micShimEnabled.value },
                         onPageLoaded = onUrlChanged,
                         onNavigationBlocked = onNavigationBlocked,
                         onError = onError
