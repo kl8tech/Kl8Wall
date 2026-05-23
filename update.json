@@ -1,6 +1,6 @@
 {
-  "version": "2.0.36",
-  "versionCode": 38,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.36/kl8wall-v38.apk",
-  "changelog": "Release v2.0.36 - Implement 24/7 Screen Keep-Awake, Disable System Keyguard/Lockscreen dynamically, and Screen-Off automatic wake receiver."
+  "version": "2.0.37",
+  "versionCode": 39,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.37/kl8wall-v39.apk",
+  "changelog": "Release v2.0.37 - Implement default URL ha.kl8.dev, self-healing WebView recovery loop, and P2P mesh relay network."
 }

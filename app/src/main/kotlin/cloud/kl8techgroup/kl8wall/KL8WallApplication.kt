@@ -81,6 +81,8 @@ class KL8WallApplication : Application() {
         private set
     var bluetoothProxyServer: BluetoothProxyServer? = null
         private set
+    var peerManager: cloud.kl8techgroup.kl8wall.peer.PeerManager? = null
+        private set
     var intercomManager: cloud.kl8techgroup.kl8wall.intercom.IntercomManager? = null
         private set
     var castManager: CastManager? = null
@@ -99,6 +101,7 @@ class KL8WallApplication : Application() {
 
     private var activeActivities = 0
     private var boundIpAddress: String? = null
+    private val lastReconnectTime = java.util.concurrent.atomic.AtomicLong(0)
 
     override fun onCreate() {
         super.onCreate()
@@ -108,6 +111,7 @@ class KL8WallApplication : Application() {
         ttsController = TtsController(this)
         otaManager = OtaManager(this)
         passcodeLockManager = PasscodeLockManager(settingsRepository)
+        peerManager = cloud.kl8techgroup.kl8wall.peer.PeerManager(this, settingsRepository)
 
         registerNetworkCallback()
 
@@ -236,12 +240,35 @@ class KL8WallApplication : Application() {
 
             connectivityManager.registerNetworkCallback(networkRequest, object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastReconnectTime.get() < 15000) {
+                        android.util.Log.d("KL8Wall", "Network callback onAvailable ignored (debounced)")
+                        return
+                    }
+                    lastReconnectTime.set(now)
+
                     android.util.Log.i("KL8Wall", "Network connection available, starting/restarting network services")
                     serverScope.launch {
+                        var ip: String? = null
+                        for (i in 1..10) {
+                            ip = WifiHelper.getWifiIpAddress(this@KL8WallApplication)
+                            if (ip != null) break
+                            android.util.Log.d("KL8Wall", "IP address not available yet, retrying in 500ms... (attempt $i/10)")
+                            delay(500)
+                        }
+
                         if (!settingsRepository.isFirstRun.value) {
                             startServer()
                         }
                         mqttManager?.reconnect()
+
+                        otaManager.checkForUpdates(forceInstall = false)
+
+                        deviceController?.let { devCtrl ->
+                            android.util.Log.i("KL8Wall", "Network connection available, reloading WebView...")
+                            delay(1000)
+                            devCtrl.reload()
+                        }
                     }
                 }
             })
@@ -305,6 +332,8 @@ class KL8WallApplication : Application() {
         val ble = BluetoothProxyServer(this, settingsRepository)
         bluetoothProxyServer = ble
         ble.start()
+
+        peerManager?.start()
     }
 
     private fun handleIntercomCommand(cmd: String) {
@@ -347,6 +376,8 @@ class KL8WallApplication : Application() {
 
         mqttManager?.stop()
         mqttManager = null
+
+        peerManager?.stop()
     }
 
     /**

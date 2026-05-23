@@ -23,8 +23,11 @@ class WebViewClientConfig(
     private val micShimEnabled: () -> Boolean = { true },
     private val onPageLoaded: (String) -> Unit = {},
     private val onNavigationBlocked: (String) -> Unit = {},
-    private val onError: (Int, String) -> Unit = { _, _ -> }
+    private val onError: (Int, String) -> Unit = { _, _ -> },
+    private val onPageLoadStatus: (String, Boolean) -> Unit = { _, _ -> }
 ) : WebViewClient() {
+
+    private var mainFrameError = false
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val host = request.url?.host?.lowercase() ?: return true
@@ -42,6 +45,7 @@ class WebViewClientConfig(
 
     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
+        mainFrameError = false
         view.evaluateJavascript(ERROR_LOGGER_JS, null)
         if (micShimEnabled()) {
             view.evaluateJavascript(MICROPHONE_SHIM_JS, null)
@@ -50,7 +54,10 @@ class WebViewClientConfig(
 
     override fun onPageFinished(view: WebView, url: String?) {
         super.onPageFinished(view, url)
-        url?.let { onPageLoaded(it) }
+        url?.let {
+            onPageLoaded(it)
+            onPageLoadStatus(it, !mainFrameError)
+        }
         view.evaluateJavascript(ERROR_LOGGER_JS, null)
         view.evaluateJavascript(DISABLE_SELECTION_JS, null)
         view.evaluateJavascript(DEBUG_DOM_JS, null)
@@ -65,9 +72,11 @@ class WebViewClientConfig(
             if (ignoreSslErrors()) {
                 handler.proceed()
             } else {
+                mainFrameError = true
                 handler.cancel()
             }
         } catch (e: Exception) {
+            mainFrameError = true
             handler.cancel()
         }
     }
@@ -75,6 +84,7 @@ class WebViewClientConfig(
     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
         super.onReceivedError(view, request, error)
         if (request.isForMainFrame) {
+            mainFrameError = true
             val failingUrl = request.url?.toString() ?: "unknown"
             onError(error.errorCode, "${error.description} ($failingUrl)")
         }

@@ -1049,7 +1049,7 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
     val context = LocalContext.current
     
     // HA states
-    var url by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf(viewModel.startUrl.value) }
     var token by remember { mutableStateOf("") }
     var showToken by remember { mutableStateOf(false) }
 

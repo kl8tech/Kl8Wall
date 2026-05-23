@@ -3,6 +3,7 @@ package cloud.kl8techgroup.kl8wall.mqtt
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import cloud.kl8techgroup.kl8wall.KL8WallApplication
 import cloud.kl8techgroup.kl8wall.server.DeviceController
 import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
 import kotlinx.coroutines.*
@@ -59,6 +60,9 @@ class MqttManager(
     private var castAndLockCollectorsJob: Job? = null
     private var connectionJob: Job? = null
 
+    @Volatile
+    private var brokerIpOverride: String? = null
+
     private val _connectionState = MutableStateFlow(MqttConnectionState.DISCONNECTED)
     val connectionState: StateFlow<MqttConnectionState> = _connectionState.asStateFlow()
 
@@ -67,6 +71,48 @@ class MqttManager(
 
     fun isConnected(): Boolean {
         return mqttClient?.isConnected ?: false
+    }
+
+    fun setBrokerIpOverride(ip: String) {
+        if (brokerIpOverride != ip) {
+            Log.i(TAG, "Setting MQTT broker IP override: $ip")
+            brokerIpOverride = ip
+            reconnect()
+        }
+    }
+
+    fun subscribeExternally(topic: String) {
+        val client = mqttClient
+        if (client != null && client.isConnected) {
+            try {
+                client.subscribe(topic, 1)
+                Log.i(TAG, "Subscribed externally to $topic")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to subscribe to $topic", e)
+            }
+        }
+    }
+
+    fun unsubscribeExternally(topic: String) {
+        val client = mqttClient
+        if (client != null && client.isConnected) {
+            try {
+                client.unsubscribe(topic)
+                Log.i(TAG, "Unsubscribed externally from $topic")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to unsubscribe from $topic", e)
+            }
+        }
+    }
+
+    fun publishExternally(topic: String, payload: String, retain: Boolean = false) {
+        publishString(topic, payload, retain)
+    }
+
+    fun handleRelayedCommand(topic: String, payload: String) {
+        scope.launch(Dispatchers.Main) {
+            handleCommand(topic, payload, settingsRepository.deviceName.value)
+        }
     }
 
     private fun isLocalHostOrIp(host: String): Boolean {
@@ -195,7 +241,12 @@ class MqttManager(
             var delayMs = 2000L
             while (isActive) {
                 try {
-                    val brokerAddress = config.broker.trim()
+                    var brokerAddress = config.broker.trim()
+                    val overrideIp = brokerIpOverride
+                    if (overrideIp != null && overrideIp.isNotEmpty() && !isLocalHostOrIp(brokerAddress)) {
+                        Log.i(TAG, "Overriding broker address with direct IP: $overrideIp (original: $brokerAddress)")
+                        brokerAddress = overrideIp
+                    }
                     val serverUri = when {
                         brokerAddress.startsWith("tcp://") ||
                         brokerAddress.startsWith("ssl://") ||
@@ -231,7 +282,8 @@ class MqttManager(
                                 socketFactory = SslUtil.tlsSocketFactory
                                 val host = serverUri.substringAfter("://").substringBefore(":")
                                 sslHostnameVerifier = javax.net.ssl.HostnameVerifier { hostname, session ->
-                                    if (isLocalHostOrIp(host) || isLocalHostOrIp(hostname)) {
+                                    val expectedHost = config.broker.trim()
+                                    if (isLocalHostOrIp(host) || isLocalHostOrIp(hostname) || hostname == expectedHost) {
                                         true
                                     } else {
                                         javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(hostname, session)
@@ -267,7 +319,12 @@ class MqttManager(
                                 onIntercomCommand(payload)
                             } else {
                                 val payload = message.payload.toString(Charsets.UTF_8)
-                                handleCommand(topic, payload, config.deviceName)
+                                val currentDevice = config.deviceName
+                                if (!topic.startsWith("kl8wall/$currentDevice/")) {
+                                    KL8WallApplication.instance.peerManager?.handleRelayedMqttMessage(topic, payload)
+                                } else {
+                                    handleCommand(topic, payload, config.deviceName)
+                                }
                             }
                         }
                         override fun deliveryComplete(token: IMqttDeliveryToken?) {}
@@ -293,6 +350,12 @@ class MqttManager(
                     Log.e(TAG, "MQTT connection attempt failed, retrying in ${delayMs / 1000}s", e)
                     _connectionState.value = MqttConnectionState.DISCONNECTED
                     _lastError.value = errMsg
+                    
+                    if (brokerIpOverride != null) {
+                        Log.i(TAG, "Clearing broker IP override due to connection failure")
+                        brokerIpOverride = null
+                    }
+
                     try {
                         mqttClient?.close()
                     } catch (_: Exception) {}
@@ -857,8 +920,21 @@ class MqttManager(
     }
 
     private fun publishBytes(topic: String, payload: ByteArray, retain: Boolean) {
-        val client = mqttClient ?: return
-        if (!client.isConnected) return
+        val client = mqttClient
+        if (client == null || !client.isConnected) {
+            val stringPayload = payload.toString(Charsets.UTF_8)
+            val app = context.applicationContext as? KL8WallApplication
+            val peerManager = app?.peerManager
+            if (peerManager != null) {
+                val relayed = peerManager.sendRelayMessage(topic, stringPayload)
+                if (relayed) {
+                    Log.d(TAG, "MQTT disconnected; relayed packet to peer: $topic")
+                } else {
+                    Log.d(TAG, "MQTT disconnected; failed to find online peer to relay packet: $topic")
+                }
+            }
+            return
+        }
         try {
             val mqttMessage = MqttMessage(payload).apply {
                 qos = 1

@@ -88,6 +88,7 @@ class OtaManager(private val context: Context) {
     suspend fun checkForUpdates(forceInstall: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Checking for updates at $UPDATE_URL...")
+            _updateError.value = null
             val url = URL(UPDATE_URL)
             val connection = url.openConnection() as HttpURLConnection
             if (connection is javax.net.ssl.HttpsURLConnection) {

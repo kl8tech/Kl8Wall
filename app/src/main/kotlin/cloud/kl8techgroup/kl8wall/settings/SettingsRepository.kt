@@ -36,7 +36,7 @@ class SettingsRepository(context: Context) {
     private val _presenceTimeoutSeconds = MutableStateFlow(prefs.getInt(KEY_PRESENCE_TIMEOUT_SECONDS, 30))
     private val _cameraIntervalMinutes = MutableStateFlow(prefs.getInt(KEY_CAMERA_INTERVAL_MINUTES, 60))
 
-    private val _startUrl = MutableStateFlow(prefs.getString(KEY_START_URL, "") ?: "")
+    private val _startUrl = MutableStateFlow(prefs.getString(KEY_START_URL, "https://ha.kl8.dev") ?: "https://ha.kl8.dev")
     private val _haTokenSet = MutableStateFlow(prefs.getString(KEY_HA_TOKEN, "")?.isNotEmpty() == true)
     private val _httpPort = MutableStateFlow(prefs.getInt(KEY_HTTP_PORT, DEFAULT_HTTP_PORT))
     private val _httpBearerToken = MutableStateFlow(

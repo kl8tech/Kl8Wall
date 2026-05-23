@@ -52,8 +52,8 @@ class KL8WallHttpServer(
             return corsWrapped(newFixedLengthResponse(Response.Status.NO_CONTENT, MIME_PLAINTEXT, ""))
         }
 
-        if (!verifyBearer(session)) {
-            return corsWrapped(errorResponse(Response.Status.UNAUTHORIZED, "Invalid or missing bearer token"))
+        if (!verifyRequest(session)) {
+            return corsWrapped(errorResponse(Response.Status.UNAUTHORIZED, "Invalid or missing authorization credentials"))
         }
 
         return corsWrapped(route(session))
@@ -81,6 +81,8 @@ class KL8WallHttpServer(
         "POST /api/lock" -> handleLock()
         "POST /api/unlock" -> handleUnlock()
         "POST /api/reboot" -> withController { handleReboot(it) }
+        "POST /api/peer/relay" -> handlePeerRelay(session)
+        "POST /api/peer/command" -> handlePeerCommand(session)
         else -> errorResponse(Response.Status.NOT_FOUND, "Not found")
     }
 
@@ -279,6 +281,84 @@ class KL8WallHttpServer(
     private fun verifyBearer(session: IHTTPSession): Boolean {
         val authHeader = session.headers["authorization"] ?: return false
         return authHeader == "Bearer ${bearerTokenProvider()}"
+    }
+
+    private fun verifyRequest(session: IHTTPSession): Boolean {
+        if (verifyBearer(session)) return true
+
+        val uri = session.uri ?: ""
+        if (uri == "/api/peer/relay" || uri == "/api/peer/command") {
+            val meshAuthHeader = session.headers["x-kl8wall-mesh-auth"] ?: return false
+            val peerManager = KL8WallApplication.instance.peerManager ?: return false
+            val expectedAuth = peerManager.getMeshAuthToken()
+            return expectedAuth.isNotEmpty() && meshAuthHeader == expectedAuth
+        }
+
+        return false
+    }
+
+    private fun handlePeerRelay(session: IHTTPSession): Response {
+        val body = readBody(session)
+        val jsonBody = try {
+            JSONObject(body)
+        } catch (e: Exception) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Invalid JSON body")
+        }
+
+        val topic = jsonBody.optString("topic", "")
+        val payload = jsonBody.optString("payload", "")
+        if (topic.isBlank()) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Missing topic")
+        }
+
+        val app = KL8WallApplication.instance
+        val mqtt = app.mqttManager
+        if (mqtt == null || !mqtt.isConnected()) {
+            return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "MQTT broker not connected on this peer")
+        }
+
+        mqtt.publishExternally(topic, payload, retain = true)
+
+        var resolvedIp = ""
+        val brokerHost = settingsRepository.mqttBroker.value.trim()
+        if (brokerHost.isNotEmpty()) {
+            try {
+                resolvedIp = java.net.InetAddress.getByName(brokerHost).hostAddress ?: ""
+            } catch (_: Exception) {}
+        }
+
+        val responseJson = JSONObject().apply {
+            put("status", "relayed")
+            put("reconnect_requested", true)
+            if (resolvedIp.isNotEmpty()) {
+                put("broker_resolved_ip", resolvedIp)
+            }
+        }
+
+        return jsonResponse(Response.Status.OK, responseJson.toString())
+    }
+
+    private fun handlePeerCommand(session: IHTTPSession): Response {
+        val body = readBody(session)
+        val jsonBody = try {
+            JSONObject(body)
+        } catch (e: Exception) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Invalid JSON body")
+        }
+
+        val topic = jsonBody.optString("topic", "")
+        val payload = jsonBody.optString("payload", "")
+        if (topic.isBlank()) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Missing topic")
+        }
+
+        val mqtt = KL8WallApplication.instance.mqttManager
+        if (mqtt != null) {
+            mqtt.handleRelayedCommand(topic, payload)
+            return successResponse()
+        } else {
+            return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "MQTT service not available")
+        }
     }
 
     private fun readBody(session: IHTTPSession): String {

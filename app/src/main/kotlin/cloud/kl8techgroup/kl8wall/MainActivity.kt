@@ -93,6 +93,9 @@ class MainActivity : ComponentActivity() {
 
     @Volatile
     private var currentWebViewUrl: String = ""
+    private var webViewRecoveryJob: kotlinx.coroutines.Job? = null
+    @Volatile
+    private var isWebViewError = false
     @Suppress("DEPRECATION")
     private var keyguardLock: android.app.KeyguardManager.KeyguardLock? = null
     private var kioskWebView: KioskWebView? = null
@@ -400,6 +403,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopWebViewRecoveryLoop()
         powerStateReceiver?.let {
             unregisterReceiver(it)
             powerStateReceiver = null
@@ -407,6 +411,49 @@ class MainActivity : ComponentActivity() {
         val app = application as KL8WallApplication
         app.deviceController = null
         app.stopServices()
+    }
+
+    private fun startWebViewRecoveryLoop() {
+        if (webViewRecoveryJob?.isActive == true) return
+        Log.i("MainActivity", "Starting WebView recovery loop...")
+        webViewRecoveryJob = lifecycleScope.launch {
+            delay(15000)
+            while (isWebViewError) {
+                Log.i("MainActivity", "WebView in error state, attempting automatic reload...")
+                kioskWebView?.let { wv ->
+                    wv.post {
+                        val app = application as KL8WallApplication
+                        val finalUrl = buildStartUrl(app.settingsRepository.startUrl.value) {
+                            app.settingsRepository.getHaToken()
+                        }
+                        if (finalUrl.isNotBlank()) {
+                            wv.loadUrl(finalUrl)
+                        } else {
+                            wv.reload()
+                        }
+                    }
+                }
+                delay(15000)
+            }
+        }
+    }
+
+    private fun stopWebViewRecoveryLoop() {
+        if (webViewRecoveryJob != null) {
+            Log.i("MainActivity", "Stopping WebView recovery loop")
+            webViewRecoveryJob?.cancel()
+            webViewRecoveryJob = null
+        }
+    }
+
+    fun handlePageLoadStatus(url: String, success: Boolean) {
+        if (success) {
+            isWebViewError = false
+            stopWebViewRecoveryLoop()
+        } else {
+            isWebViewError = true
+            startWebViewRecoveryLoop()
+        }
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -712,6 +759,7 @@ private fun KL8WallScreen(
     onPageLoaded: (String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val mainActivity = context as? MainActivity
     val settingsRepo = (context.applicationContext as KL8WallApplication).settingsRepository
     val isFirstRun by viewModel.isFirstRun.collectAsState()
     val startUrl by viewModel.startUrl.collectAsState()
@@ -794,6 +842,9 @@ private fun KL8WallScreen(
                         scope.launch {
                             snackbarHostState.showSnackbar("Error ($code): $message")
                         }
+                    },
+                    onPageLoadStatus = { url, success ->
+                        mainActivity?.handlePageLoadStatus(url, success)
                     }
                 )
 
@@ -862,7 +913,8 @@ private fun KioskWebViewContainer(
     onWebViewCreated: (KioskWebView) -> Unit,
     onUrlChanged: (String) -> Unit,
     onNavigationBlocked: (String) -> Unit,
-    onError: (Int, String) -> Unit
+    onError: (Int, String) -> Unit,
+    onPageLoadStatus: (String, Boolean) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val settingsRepo = (context.applicationContext as KL8WallApplication).settingsRepository
@@ -890,7 +942,8 @@ private fun KioskWebViewContainer(
                         micShimEnabled = { settingsRepo.micShimEnabled.value },
                         onPageLoaded = onUrlChanged,
                         onNavigationBlocked = onNavigationBlocked,
-                        onError = onError
+                        onError = onError,
+                        onPageLoadStatus = onPageLoadStatus
                     )
 
                     webChromeClient = object : android.webkit.WebChromeClient() {
