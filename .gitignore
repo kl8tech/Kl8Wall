@@ -15,3 +15,4 @@ local.properties
 *.keystore
 *.env
 /gradle/custom-cacerts
+.kotlin/

@@ -1,6 +1,6 @@
 {
-  "version": "2.0.38",
-  "versionCode": 40,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.38/kl8wall-v40.apk",
-  "changelog": "Release v2.0.38 - Implement ESPHome P2P TCP Proxy routing, meshed microphone/intercom base64 audio relaying, and local Home Assistant mDNS discovery fallback."
+  "version": "2.0.39",
+  "versionCode": 41,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.39/kl8wall-v41.apk",
+  "changelog": "Release v2.0.39 - Secures signing keys, optimizes GitHub release assets pipeline, and resolves GitHub Actions push permission failures."
 }

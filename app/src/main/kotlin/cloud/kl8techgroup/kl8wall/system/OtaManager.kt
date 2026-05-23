@@ -25,7 +25,7 @@ class OtaManager(private val context: Context) {
 
     companion object {
         private const val TAG = "OtaManager"
-        private const val UPDATE_URL = "https://raw.githubusercontent.com/kl8tech/Kl8Wall/master/update.json"
+        private const val UPDATE_URL = "https://github.com/kl8tech/Kl8Wall/releases/latest/download/update.json"
         private const val APK_TEMP_NAME = "kl8wall_ota.apk"
     }
 

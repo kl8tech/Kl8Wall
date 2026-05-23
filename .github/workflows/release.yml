@@ -57,14 +57,6 @@ jobs:
                '{version: $version, versionCode: $versionCode, url: $url, changelog: $changelog}' > update.json
           fi
 
-      - name: Commit and Push update.json
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add update.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update OTA metadata for ${{ github.ref_name }}"
-          git push origin HEAD:master
-
       - name: Prepare Release Artifacts
         run: |
           cp app/build/outputs/apk/release/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk app/build/outputs/apk/release/kl8wall-release.apk
@@ -80,5 +72,6 @@ jobs:
           files: |
             app/build/outputs/apk/release/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk
             app/build/outputs/apk/release/kl8wall-release.apk
+            update.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
