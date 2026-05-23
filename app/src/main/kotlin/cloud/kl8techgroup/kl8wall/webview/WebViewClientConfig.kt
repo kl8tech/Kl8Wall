@@ -286,6 +286,14 @@ class WebViewClientConfig(
         private const val MICROPHONE_SHIM_JS = """
             (function() {
                 if (window.__kl8wall_mic_shim_installed) return;
+
+                // Check if we already have a secure context and native getUserMedia
+                if (window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    window.__kl8wall_mic_shim_installed = true;
+                    console.log('[KL8Wall-MIC] Native secure context and getUserMedia detected. Skipping shim.');
+                    return;
+                }
+
                 window.__kl8wall_mic_shim_installed = true;
                 console.log('[KL8Wall-MIC] Installing microphone shim for HTTP...');
 
@@ -298,11 +306,15 @@ class WebViewClientConfig(
                 }
 
                 if (!navigator.mediaDevices) {
-                    Object.defineProperty(navigator, 'mediaDevices', {
-                        value: {},
-                        writable: true,
-                        configurable: true
-                    });
+                    try {
+                        Object.defineProperty(navigator, 'mediaDevices', {
+                            value: {},
+                            writable: true,
+                            configurable: true
+                        });
+                    } catch (e) {
+                        console.error('[KL8Wall-MIC] Failed to define navigator.mediaDevices', e);
+                    }
                 }
 
                 let audioQueue = [];
@@ -326,67 +338,107 @@ class WebViewClientConfig(
                     }
                 };
 
-                navigator.mediaDevices.getUserMedia = function(constraints) {
-                    console.log('[KL8Wall-MIC] getUserMedia called');
-                    return new Promise(function(resolve, reject) {
-                        try {
-                            let AudioCtx = window.AudioContext || window.webkitAudioContext;
-                            let audioCtx = new AudioCtx();
-                            let sampleRate = audioCtx.sampleRate;
+                if (navigator.mediaDevices) {
+                    try {
+                        navigator.mediaDevices.getUserMedia = function(constraints) {
+                            console.log('[KL8Wall-MIC] getUserMedia called');
+                            return new Promise(function(resolve, reject) {
+                                try {
+                                    let AudioCtx = window.AudioContext || window.webkitAudioContext;
+                                    let audioCtx = new AudioCtx();
+                                    let sampleRate = audioCtx.sampleRate;
 
-                            if (window.Kl8WallAudio) {
-                                window.Kl8WallAudio.startRecording(sampleRate);
-                            } else {
-                                console.error('[KL8Wall-MIC] Kl8WallAudio JS interface not found');
-                            }
-
-                            let processor = audioCtx.createScriptProcessor(4096, 0, 1);
-                            
-                            processor.onaudioprocess = function(e) {
-                                let outputBuffer = e.outputBuffer;
-                                let channelData = outputBuffer.getChannelData(0);
-                                
-                                if (audioQueue.length > 0) {
-                                    let chunk = audioQueue.shift();
-                                    let copyLen = Math.min(chunk.length, channelData.length);
-                                    for (let i = 0; i < copyLen; i++) {
-                                        channelData[i] = chunk[i];
+                                    if (audioCtx.state === 'suspended') {
+                                        audioCtx.resume().catch(function(e) {
+                                            console.warn('[KL8Wall-MIC] Failed to resume audioCtx:', e);
+                                        });
                                     }
-                                    if (chunk.length > channelData.length) {
-                                        audioQueue.unshift(chunk.subarray(channelData.length));
-                                    }
-                                } else {
-                                    channelData.fill(0);
-                                }
-                            };
 
-                            let destination = audioCtx.createMediaStreamDestination();
-                            processor.connect(destination);
-
-                            let stream = destination.stream;
-                            let tracks = stream.getAudioTracks();
-                            if (tracks.length > 0) {
-                                let track = tracks[0];
-                                let originalStop = track.stop;
-                                track.stop = function() {
-                                    console.log('[KL8Wall-MIC] track.stop called');
                                     if (window.Kl8WallAudio) {
-                                        window.Kl8WallAudio.stopRecording();
+                                        window.Kl8WallAudio.startRecording(sampleRate);
+                                    } else {
+                                        console.error('[KL8Wall-MIC] Kl8WallAudio JS interface not found');
                                     }
-                                    audioCtx.close();
-                                    if (originalStop) {
-                                        originalStop.call(track);
-                                    }
-                                };
-                            }
 
-                            resolve(stream);
-                        } catch (err) {
-                            console.error('[KL8Wall-MIC] Error in getUserMedia shim:', err);
-                            reject(err);
-                        }
-                    });
-                };
+                                    let processor = audioCtx.createScriptProcessor(4096, 0, 1);
+                                    
+                                    processor.onaudioprocess = function(e) {
+                                        let outputBuffer = e.outputBuffer;
+                                        let channelData = outputBuffer.getChannelData(0);
+                                        
+                                        if (audioQueue.length > 0) {
+                                            let chunk = audioQueue.shift();
+                                            let copyLen = Math.min(chunk.length, channelData.length);
+                                            for (let i = 0; i < copyLen; i++) {
+                                                channelData[i] = chunk[i];
+                                            }
+                                            if (chunk.length > channelData.length) {
+                                                audioQueue.unshift(chunk.subarray(channelData.length));
+                                            }
+                                        } else {
+                                            channelData.fill(0);
+                                        }
+                                    };
+
+                                    let destination = audioCtx.createMediaStreamDestination();
+                                    processor.connect(destination);
+
+                                    let stream = destination.stream;
+                                    let tracks = stream.getAudioTracks();
+                                    if (tracks.length > 0) {
+                                        let track = tracks[0];
+                                        let originalStop = track.stop;
+                                        let stopped = false;
+                                        track.stop = function() {
+                                            console.log('[KL8Wall-MIC] track.stop called, stopped=' + stopped);
+                                            if (stopped) return;
+                                            stopped = true;
+
+                                            if (window.Kl8WallAudio) {
+                                                try {
+                                                    window.Kl8WallAudio.stopRecording();
+                                                } catch (e) {
+                                                    console.error('[KL8Wall-MIC] stopRecording failed', e);
+                                                }
+                                            }
+
+                                            try {
+                                                processor.disconnect();
+                                            } catch (e) {}
+
+                                            audioQueue = [];
+
+                                            if (audioCtx && audioCtx.state !== 'closed') {
+                                                try {
+                                                    audioCtx.close().catch(function(err) {
+                                                        console.log('[KL8Wall-MIC] audioCtx.close rejection caught:', err);
+                                                    });
+                                                } catch (e) {
+                                                    console.error('[KL8Wall-MIC] audioCtx.close error:', e);
+                                                }
+                                            }
+
+                                            if (originalStop) {
+                                                try {
+                                                    originalStop.call(track);
+                                                } catch (e) {
+                                                    console.error('[KL8Wall-MIC] originalStop failed', e);
+                                                }
+                                            }
+                                        };
+                                    }
+
+                                    resolve(stream);
+                                } catch (err) {
+                                    console.error('[KL8Wall-MIC] Error in getUserMedia shim:', err);
+                                    reject(err);
+                                }
+                            });
+                        };
+                    } catch (e) {
+                        console.error('[KL8Wall-MIC] Failed to override getUserMedia', e);
+                    }
+                }
             })();
         """
     }

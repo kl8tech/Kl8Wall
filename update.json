@@ -1,6 +1,6 @@
 {
-  "version": "2.0.41",
-  "versionCode": 43,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.41/kl8wall-v43.apk",
-  "changelog": "Release v2.0.41 - Restores release signing with original keystore via GitHub Actions secrets."
+  "version": "2.0.42",
+  "versionCode": 44,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.42/kl8wall-v44.apk",
+  "changelog": "Fix microphone shim error by skipping custom shim on HTTPS secure contexts and catching close promise rejections on HTTP."
 }
