@@ -1,6 +1,6 @@
 {
-  "version": "2.0.40",
-  "versionCode": 42,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.40/kl8wall-v42.apk",
-  "changelog": "Release v2.0.40 - Secures signing keys, optimizes GitHub release assets pipeline, and resolves GitHub Actions push permission failures."
+  "version": "2.0.41",
+  "versionCode": 43,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.41/kl8wall-v43.apk",
+  "changelog": "Release v2.0.41 - Restores release signing with original keystore via GitHub Actions secrets."
 }
