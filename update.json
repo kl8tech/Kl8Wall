@@ -1,6 +1,6 @@
 {
-  "version": "2.0.37",
-  "versionCode": 39,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.37/kl8wall-v39.apk",
-  "changelog": "Release v2.0.37 - Implement default URL ha.kl8.dev, self-healing WebView recovery loop, and P2P mesh relay network."
+  "version": "2.0.38",
+  "versionCode": 40,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.38/kl8wall-v40.apk",
+  "changelog": "Release v2.0.38 - Implement ESPHome P2P TCP Proxy routing, meshed microphone/intercom base64 audio relaying, and local Home Assistant mDNS discovery fallback."
 }

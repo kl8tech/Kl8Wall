@@ -306,9 +306,20 @@ class KL8WallHttpServer(
         }
 
         val topic = jsonBody.optString("topic", "")
-        val payload = jsonBody.optString("payload", "")
+        val payloadStr = jsonBody.optString("payload", "")
+        val isBase64 = jsonBody.optBoolean("is_base64", false)
         if (topic.isBlank()) {
             return errorResponse(Response.Status.BAD_REQUEST, "Missing topic")
+        }
+
+        val payloadBytes = if (isBase64) {
+            try {
+                android.util.Base64.decode(payloadStr, android.util.Base64.DEFAULT)
+            } catch (e: Exception) {
+                payloadStr.toByteArray(Charsets.UTF_8)
+            }
+        } else {
+            payloadStr.toByteArray(Charsets.UTF_8)
         }
 
         val app = KL8WallApplication.instance
@@ -317,7 +328,7 @@ class KL8WallHttpServer(
             return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "MQTT broker not connected on this peer")
         }
 
-        mqtt.publishExternally(topic, payload, retain = true)
+        mqtt.publishExternally(topic, payloadBytes, retain = true)
 
         var resolvedIp = ""
         val brokerHost = settingsRepository.mqttBroker.value.trim()
@@ -347,14 +358,25 @@ class KL8WallHttpServer(
         }
 
         val topic = jsonBody.optString("topic", "")
-        val payload = jsonBody.optString("payload", "")
+        val payloadStr = jsonBody.optString("payload", "")
+        val isBase64 = jsonBody.optBoolean("is_base64", false)
         if (topic.isBlank()) {
             return errorResponse(Response.Status.BAD_REQUEST, "Missing topic")
         }
 
+        val payloadBytes = if (isBase64) {
+            try {
+                android.util.Base64.decode(payloadStr, android.util.Base64.DEFAULT)
+            } catch (e: Exception) {
+                payloadStr.toByteArray(Charsets.UTF_8)
+            }
+        } else {
+            payloadStr.toByteArray(Charsets.UTF_8)
+        }
+
         val mqtt = KL8WallApplication.instance.mqttManager
         if (mqtt != null) {
-            mqtt.handleRelayedCommand(topic, payload)
+            mqtt.handleRelayedCommand(topic, payloadBytes)
             return successResponse()
         } else {
             return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "MQTT service not available")

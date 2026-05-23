@@ -423,7 +423,15 @@ class MainActivity : ComponentActivity() {
                 kioskWebView?.let { wv ->
                     wv.post {
                         val app = application as KL8WallApplication
-                        val finalUrl = buildStartUrl(app.settingsRepository.startUrl.value) {
+                        val localUrl = app.peerManager?.localHaUrl
+                        val configuredUrl = app.settingsRepository.startUrl.value
+                        val loadUrl = if (localUrl != null && localUrl.isNotEmpty() && !configuredUrl.contains(localUrl)) {
+                            Log.i("MainActivity", "Configured URL failing. Falling back to discovered local Home Assistant: $localUrl")
+                            localUrl
+                        } else {
+                            configuredUrl
+                        }
+                        val finalUrl = buildStartUrl(loadUrl) {
                             app.settingsRepository.getHaToken()
                         }
                         if (finalUrl.isNotBlank()) {

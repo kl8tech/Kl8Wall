@@ -261,13 +261,15 @@ class KL8WallApplication : Application() {
                             startServer()
                         }
                         mqttManager?.reconnect()
+                        bluetoothProxyServer?.restart()
+                        peerManager?.restart()
 
                         otaManager.checkForUpdates(forceInstall = false)
 
                         deviceController?.let { devCtrl ->
-                            android.util.Log.i("KL8Wall", "Network connection available, reloading WebView...")
+                            android.util.Log.i("KL8Wall", "Network connection available, reloading configured start URL...")
                             delay(1000)
-                            devCtrl.reload()
+                            devCtrl.navigate(settingsRepository.startUrl.value)
                         }
                     }
                 }

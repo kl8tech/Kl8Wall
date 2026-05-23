@@ -54,6 +54,20 @@ class PeerManager(
     // Track active external dynamic subscriptions to peer command topics
     private val activePeerSubscriptions = ConcurrentHashMap.newKeySet<String>()
 
+    private class EsphomeProxy(
+        val peerName: String,
+        val localPort: Int,
+        val serverSocket: java.net.ServerSocket,
+        val serviceInfo: javax.jmdns.ServiceInfo,
+        val job: kotlinx.coroutines.Job
+    )
+
+    private val activeProxies = java.util.concurrent.ConcurrentHashMap<String, EsphomeProxy>()
+
+    @Volatile
+    var localHaUrl: String? = null
+        private set
+
     // Timestamp when this device last received a request to relay.
     // Used to track if this device is actively operating in relay mode.
     private var lastRelayUsageTime = 0L
@@ -72,6 +86,28 @@ class PeerManager(
         stopDiscovery()
         activePeerSubscriptions.clear()
         peers.clear()
+        activeProxies.keys.forEach { name ->
+            stopEsphomeProxy(name)
+        }
+        activeProxies.clear()
+    }
+
+    @Synchronized
+    fun restart() {
+        Log.i(TAG, "Restarting PeerManager...")
+        stopDiscovery()
+        pollingJob?.cancel()
+        relayTrackingJob?.cancel()
+        activePeerSubscriptions.clear()
+        peers.clear()
+        activeProxies.keys.forEach { name ->
+            stopEsphomeProxy(name)
+        }
+        activeProxies.clear()
+        
+        startDiscovery()
+        startPolling()
+        startRelayTracking()
     }
 
     private fun startDiscovery() {
@@ -128,9 +164,29 @@ class PeerManager(
                             peers[name] = peer
                             Log.i(TAG, "Peer discovered/resolved: $name at $ip:$port (MQTT connected: $isMqttConnected)")
                             
-                            // Re-evaluate dynamic subscriptions based on updated status
+                            // Re-evaluate dynamic subscriptions and proxies based on updated status
                             scope.launch {
                                 evaluateDynamicSubscriptions()
+                                evaluateEsphomeProxies()
+                            }
+                        }
+                    })
+
+                    jmdns?.addServiceListener("_home-assistant._tcp.local.", object : ServiceListener {
+                        override fun serviceAdded(event: ServiceEvent) {
+                            jmdns?.requestServiceInfo(event.type, event.name)
+                        }
+
+                        override fun serviceRemoved(event: ServiceEvent) {}
+
+                        override fun serviceResolved(event: ServiceEvent) {
+                            val info = event.info
+                            val ip = info.inetAddresses.firstOrNull()?.hostAddress
+                            if (ip != null) {
+                                val port = info.port
+                                val scheme = if (port == 443 || info.propertyNames.toList().contains("requires_ssl")) "https" else "http"
+                                localHaUrl = "$scheme://$ip:$port"
+                                Log.i(TAG, "Discovered local Home Assistant instance: $localHaUrl")
                             }
                         }
                     })
@@ -190,6 +246,7 @@ class PeerManager(
                     peer.mqttConnected = false
                 }
                 evaluateDynamicSubscriptions()
+                evaluateEsphomeProxies()
             }
         }
     }
@@ -230,6 +287,7 @@ class PeerManager(
             val mqtt = KL8WallApplication.instance.mqttManager
             mqtt?.unsubscribeExternally(topic)
         }
+        stopEsphomeProxy(peerName)
     }
 
     private fun evaluateDynamicSubscriptions() {
@@ -266,7 +324,7 @@ class PeerManager(
      * Called when a dynamic subscription receives a command meant for a peer.
      * Relays the message to the peer via a local HTTP request.
      */
-    fun handleRelayedMqttMessage(topic: String, payload: String) {
+    fun handleRelayedMqttMessage(topic: String, payload: String, isBase64: Boolean = false) {
         scope.launch {
             // Find target peer name from the topic (e.g., kl8wall/device_name/component/cmd)
             val parts = topic.split("/")
@@ -275,11 +333,11 @@ class PeerManager(
             val peer = peers[peerName] ?: return@launch
             
             Log.i(TAG, "Relaying command message to peer $peerName at ${peer.ip}: Topic=$topic, Payload=$payload")
-            relayCommandToPeer(peer, topic, payload)
+            relayCommandToPeer(peer, topic, payload, isBase64)
         }
     }
 
-    private suspend fun relayCommandToPeer(peer: PeerInfo, topic: String, payload: String) = withContext(Dispatchers.IO) {
+    private suspend fun relayCommandToPeer(peer: PeerInfo, topic: String, payload: String, isBase64: Boolean = false) = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
             val url = URL("http://${peer.ip}:${peer.port}/api/peer/command")
@@ -298,6 +356,7 @@ class PeerManager(
             val body = JSONObject().apply {
                 put("topic", topic)
                 put("payload", payload)
+                put("is_base64", isBase64)
             }.toString()
 
             connection.outputStream.use { out ->
@@ -317,12 +376,12 @@ class PeerManager(
      * Relays a sensor report from this device to an online peer over HTTP.
      * Called when our own MQTT connection is offline.
      */
-    fun sendRelayMessage(topic: String, payload: String): Boolean {
+    fun sendRelayMessage(topic: String, payload: String, isBase64: Boolean = false): Boolean {
         // Find an online peer that has working MQTT
         val targetPeer = peers.values.firstOrNull { it.mqttConnected } ?: return false
         
         scope.launch {
-            val success = relayMessageToPeer(targetPeer, topic, payload)
+            val success = relayMessageToPeer(targetPeer, topic, payload, isBase64)
             if (success) {
                 lastRelayUsageTime = System.currentTimeMillis()
             }
@@ -330,7 +389,7 @@ class PeerManager(
         return true
     }
 
-    private suspend fun relayMessageToPeer(peer: PeerInfo, topic: String, payload: String): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun relayMessageToPeer(peer: PeerInfo, topic: String, payload: String, isBase64: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
             val url = URL("http://${peer.ip}:${peer.port}/api/peer/relay")
@@ -349,6 +408,7 @@ class PeerManager(
             val body = JSONObject().apply {
                 put("topic", topic)
                 put("payload", payload)
+                put("is_base64", isBase64)
             }.toString()
 
             connection.outputStream.use { out ->
@@ -421,6 +481,157 @@ class PeerManager(
             hash.joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
             ""
+        }
+    }
+
+    private fun evaluateEsphomeProxies() {
+        val mqtt = KL8WallApplication.instance.mqttManager ?: return
+        if (!mqtt.isConnected()) {
+            activeProxies.keys.forEach { name ->
+                stopEsphomeProxy(name)
+            }
+            return
+        }
+
+        peers.forEach { (name, peer) ->
+            if (!peer.mqttConnected) {
+                if (!activeProxies.containsKey(name)) {
+                    startEsphomeProxy(peer)
+                }
+            } else {
+                if (activeProxies.containsKey(name)) {
+                    stopEsphomeProxy(name)
+                }
+            }
+        }
+
+        activeProxies.keys.forEach { name ->
+            if (!peers.containsKey(name)) {
+                stopEsphomeProxy(name)
+            }
+        }
+    }
+
+    private fun startEsphomeProxy(peer: PeerInfo) {
+        val peerName = peer.name
+        val peerIp = peer.ip
+        val port = 6100 + (peerName.hashCode() and 0x7FFF) % 100
+        
+        Log.i(TAG, "Starting ESPHome proxy for $peerName on port $port -> $peerIp:6053")
+        
+        val serverSocket = try {
+            java.net.ServerSocket(port)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to bind proxy ServerSocket on port $port for $peerName", e)
+            return
+        }
+        
+        val proxyJob = scope.launch {
+            while (isActive) {
+                try {
+                    val clientSocket = serverSocket.accept()
+                    launch {
+                        handleProxyConnection(clientSocket, peerIp, 6053)
+                    }
+                } catch (e: Exception) {
+                    if (isActive) {
+                        Log.e(TAG, "Error accepting proxy connection on port $port for $peerName", e)
+                    }
+                }
+            }
+        }
+        
+        val txtRecords = mapOf(
+            "version" to "2026.1.0",
+            "device" to "KL8Wall Proxy",
+            "mac" to peerName.hashCode().toString()
+        )
+        val serviceInfo = ServiceInfo.create(
+            "_esphomelib._tcp.local.",
+            "KL8Wall-BLE-$peerName",
+            port,
+            0,
+            0,
+            txtRecords
+        )
+        
+        try {
+            jmdns?.registerService(serviceInfo)
+            Log.i(TAG, "Registered proxy mDNS service: KL8Wall-BLE-$peerName on port $port")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register proxy mDNS service for $peerName", e)
+        }
+        
+        activeProxies[peerName] = EsphomeProxy(
+            peerName = peerName,
+            localPort = port,
+            serverSocket = serverSocket,
+            serviceInfo = serviceInfo,
+            job = proxyJob
+        )
+    }
+
+    private fun stopEsphomeProxy(peerName: String) {
+        val proxy = activeProxies.remove(peerName) ?: return
+        Log.i(TAG, "Stopping ESPHome proxy for $peerName on port ${proxy.localPort}")
+        proxy.job.cancel()
+        try {
+            proxy.serverSocket.close()
+        } catch (_: Exception) {}
+        try {
+            jmdns?.unregisterService(proxy.serviceInfo)
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun handleProxyConnection(clientSocket: java.net.Socket, destIp: String, destPort: Int) = withContext(Dispatchers.IO) {
+        var peerSocket: java.net.Socket? = null
+        try {
+            Log.d(TAG, "New proxy connection from ${clientSocket.remoteSocketAddress} to relay for $destIp:$destPort")
+            peerSocket = java.net.Socket(destIp, destPort)
+            
+            val clientIn = clientSocket.getInputStream()
+            val clientOut = clientSocket.getOutputStream()
+            val peerIn = peerSocket.getInputStream()
+            val peerOut = peerSocket.getOutputStream()
+            
+            coroutineScope {
+                val job1 = launch {
+                    try {
+                        val buffer = ByteArray(4096)
+                        var read: Int
+                        while (isActive) {
+                            read = clientIn.read(buffer)
+                            if (read == -1) break
+                            peerOut.write(buffer, 0, read)
+                            peerOut.flush()
+                        }
+                    } catch (_: Exception) {}
+                }
+                val job2 = launch {
+                    try {
+                        val buffer = ByteArray(4096)
+                        var read: Int
+                        while (isActive) {
+                            read = peerIn.read(buffer)
+                            if (read == -1) break
+                            clientOut.write(buffer, 0, read)
+                            clientOut.flush()
+                        }
+                    } catch (_: Exception) {}
+                }
+                
+                while (job1.isActive && job2.isActive) {
+                    delay(100)
+                }
+                job1.cancel()
+                job2.cancel()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in proxy connection relay for $destIp:$destPort", e)
+        } finally {
+            try { clientSocket.close() } catch (_: Exception) {}
+            try { peerSocket?.close() } catch (_: Exception) {}
+            Log.d(TAG, "Closed proxy connection relay for $destIp:$destPort")
         }
     }
 }

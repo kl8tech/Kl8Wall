@@ -131,6 +131,15 @@ class BluetoothProxyServer(
     }
 
     @Synchronized
+    fun restart() {
+        Log.i(TAG, "Restarting BluetoothProxyServer...")
+        stopServer()
+        if (settingsRepository.bluetoothProxyEnabled.value) {
+            startServer()
+        }
+    }
+
+    @Synchronized
     private fun startServer() {
         if (serverSocket != null) return
         try {

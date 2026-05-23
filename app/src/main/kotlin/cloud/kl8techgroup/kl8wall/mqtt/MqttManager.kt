@@ -109,9 +109,19 @@ class MqttManager(
         publishString(topic, payload, retain)
     }
 
-    fun handleRelayedCommand(topic: String, payload: String) {
+    fun publishExternally(topic: String, payload: ByteArray, retain: Boolean = false) {
+        publishBytes(topic, payload, retain)
+    }
+
+    fun handleRelayedCommand(topic: String, payload: ByteArray) {
         scope.launch(Dispatchers.Main) {
-            handleCommand(topic, payload, settingsRepository.deviceName.value)
+            val deviceName = settingsRepository.deviceName.value
+            if (topic.endsWith("/audio_rx")) {
+                onIncomingAudio(payload)
+            } else {
+                val payloadStr = payload.toString(Charsets.UTF_8)
+                handleCommand(topic, payloadStr, deviceName)
+            }
         }
     }
 
@@ -312,19 +322,22 @@ class MqttManager(
                             _lastError.value = cause?.message ?: "Connection lost"
                         }
                         override fun messageArrived(topic: String, message: MqttMessage) {
-                            if (topic.endsWith("/audio_rx")) {
-                                onIncomingAudio(message.payload)
-                            } else if (topic.endsWith("/intercom/cmd")) {
-                                val payload = message.payload.toString(Charsets.UTF_8)
-                                onIntercomCommand(payload)
-                            } else {
-                                val payload = message.payload.toString(Charsets.UTF_8)
-                                val currentDevice = config.deviceName
-                                if (!topic.startsWith("kl8wall/$currentDevice/")) {
-                                    KL8WallApplication.instance.peerManager?.handleRelayedMqttMessage(topic, payload)
+                            val currentDevice = config.deviceName
+                            val isLocal = topic.startsWith("kl8wall/$currentDevice/")
+                            if (isLocal) {
+                                if (topic.endsWith("/audio_rx")) {
+                                    onIncomingAudio(message.payload)
+                                } else if (topic.endsWith("/intercom/cmd")) {
+                                    val payload = message.payload.toString(Charsets.UTF_8)
+                                    onIntercomCommand(payload)
                                 } else {
-                                    handleCommand(topic, payload, config.deviceName)
+                                    val payload = message.payload.toString(Charsets.UTF_8)
+                                    handleCommand(topic, payload, currentDevice)
                                 }
+                            } else {
+                                val payloadBytes = message.payload
+                                val base64Payload = android.util.Base64.encodeToString(payloadBytes, android.util.Base64.NO_WRAP)
+                                KL8WallApplication.instance.peerManager?.handleRelayedMqttMessage(topic, base64Payload, isBase64 = true)
                             }
                         }
                         override fun deliveryComplete(token: IMqttDeliveryToken?) {}
@@ -922,11 +935,11 @@ class MqttManager(
     private fun publishBytes(topic: String, payload: ByteArray, retain: Boolean) {
         val client = mqttClient
         if (client == null || !client.isConnected) {
-            val stringPayload = payload.toString(Charsets.UTF_8)
             val app = context.applicationContext as? KL8WallApplication
             val peerManager = app?.peerManager
             if (peerManager != null) {
-                val relayed = peerManager.sendRelayMessage(topic, stringPayload)
+                val base64Payload = android.util.Base64.encodeToString(payload, android.util.Base64.NO_WRAP)
+                val relayed = peerManager.sendRelayMessage(topic, base64Payload, isBase64 = true)
                 if (relayed) {
                     Log.d(TAG, "MQTT disconnected; relayed packet to peer: $topic")
                 } else {
