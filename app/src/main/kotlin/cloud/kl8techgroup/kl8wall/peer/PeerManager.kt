@@ -134,13 +134,6 @@ class PeerManager(
             var delayMs = 2000L
             while (isActive) {
                 try {
-                    val wifiManager = context.applicationContext
-                        .getSystemService(Context.WIFI_SERVICE) as WifiManager
-                    multicastLock = wifiManager.createMulticastLock("kl8wall_peer_scan").apply {
-                        setReferenceCounted(false)
-                        acquire()
-                    }
-
                     val resolvedIp = WifiHelper.getWifiIpAddress(context)
                     if (resolvedIp == null) {
                         delay(delayMs)
@@ -148,9 +141,15 @@ class PeerManager(
                         continue
                     }
 
-                    val address = InetAddress.getByName(resolvedIp)
-                    jmdns = JmDNS.create(address, "kl8wall-peer-browser")
-                    jmdns?.addServiceListener(SERVICE_TYPE, object : ServiceListener {
+                    val app = context.applicationContext as KL8WallApplication
+                    val j = app.getOrCreateJmdns(resolvedIp)
+                    if (j == null) {
+                        delay(delayMs)
+                        delayMs = (delayMs * 2).coerceAtMost(30000L)
+                        continue
+                    }
+                    jmdns = j
+                    j.addServiceListener(SERVICE_TYPE, object : ServiceListener {
                         override fun serviceAdded(event: ServiceEvent) {
                             jmdns?.requestServiceInfo(event.type, event.name)
                         }
@@ -225,14 +224,7 @@ class PeerManager(
     }
 
     private fun cleanupJmdns() {
-        try {
-            jmdns?.close()
-        } catch (_: Exception) {}
         jmdns = null
-        try {
-            multicastLock?.let { if (it.isHeld) it.release() }
-        } catch (_: Exception) {}
-        multicastLock = null
     }
 
     private fun startPolling() {

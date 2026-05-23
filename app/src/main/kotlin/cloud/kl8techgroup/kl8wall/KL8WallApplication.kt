@@ -257,6 +257,7 @@ class KL8WallApplication : Application() {
                             delay(500)
                         }
 
+                        closeSharedJmdns()
                         if (!settingsRepository.isFirstRun.value) {
                             startServer()
                         }
@@ -489,6 +490,47 @@ class KL8WallApplication : Application() {
 
     fun updateMdnsMqttState() {
         mdnsAdvertiser?.updateMqttState()
+    }
+
+    private var sharedJmdns: javax.jmdns.JmDNS? = null
+    private var sharedMulticastLock: android.net.wifi.WifiManager.MulticastLock? = null
+
+    @Synchronized
+    fun getOrCreateJmdns(ipAddress: String): javax.jmdns.JmDNS? {
+        val current = sharedJmdns
+        if (current != null) {
+            return current
+        }
+
+        try {
+            val wifiManager = getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+            sharedMulticastLock = wifiManager.createMulticastLock("kl8wall_shared_mdns").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            
+            val address = java.net.InetAddress.getByName(ipAddress)
+            val j = javax.jmdns.JmDNS.create(address, "kl8wall-shared")
+            sharedJmdns = j
+            android.util.Log.i("KL8WallApplication", "Created shared JmDNS instance on $ipAddress")
+            return j
+        } catch (e: Exception) {
+            android.util.Log.e("KL8WallApplication", "Failed to create shared JmDNS instance", e)
+            closeSharedJmdns()
+            return null
+        }
+    }
+
+    @Synchronized
+    fun closeSharedJmdns() {
+        try {
+            sharedJmdns?.close()
+        } catch (_: Exception) {}
+        sharedJmdns = null
+        try {
+            sharedMulticastLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {}
+        sharedMulticastLock = null
     }
 
     data class PendingSyncApproval(

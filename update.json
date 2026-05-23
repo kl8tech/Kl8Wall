@@ -1,6 +1,6 @@
 {
-  "version": "2.0.46",
-  "versionCode": 48,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.46/kl8wall-v48.apk",
-  "changelog": "Add Tabbed Settings, Live Mesh list, secure import sync via Tap-to-Approve confirmation, background silent self-updates and auto-relaunch, and reliable screen waking on voice commands."
+  "version": "2.0.47",
+  "versionCode": 49,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.47/kl8wall-v49.apk",
+  "changelog": "Fix P2P peer discovery by consolidating all local mDNS browser and advertiser instances into a single shared JmDNS thread-safe manager, avoiding port 5353 binding conflicts."
 }

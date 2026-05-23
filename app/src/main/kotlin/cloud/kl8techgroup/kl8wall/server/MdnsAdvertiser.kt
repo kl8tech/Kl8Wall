@@ -39,18 +39,13 @@ class MdnsAdvertiser(private val context: Context) {
         currentHostname = hostname
         currentPort = port
 
-        val wifiManager = context.applicationContext
-            .getSystemService(Context.WIFI_SERVICE) as WifiManager
-
-        multicastLock = wifiManager.createMulticastLock(LOCK_TAG).apply {
-            setReferenceCounted(false)
-            acquire()
-        }
-
         try {
-            val address = InetAddress.getByName(hostname)
-            jmdns = JmDNS.create(address, JMDNS_NAME)
-            rebuildServiceInfo()
+            val app = context.applicationContext as KL8WallApplication
+            val j = app.getOrCreateJmdns(hostname)
+            jmdns = j
+            if (j != null) {
+                rebuildServiceInfo()
+            }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Failed to start mDNS advertising", e)
         }
@@ -106,16 +101,18 @@ class MdnsAdvertiser(private val context: Context) {
         }
     }
 
-    /** Stop advertising and release the multicast lock. */
+    /** Stop advertising. */
     @Synchronized
     fun stop() {
-        jmdns?.unregisterAllServices()
-        jmdns?.close()
+        val j = jmdns
+        val service = activeServiceInfo
+        if (j != null && service != null) {
+            try {
+                j.unregisterService(service)
+            } catch (_: Exception) {}
+        }
         jmdns = null
         activeServiceInfo = null
-
-        multicastLock?.let { if (it.isHeld) it.release() }
-        multicastLock = null
     }
 
     companion object {

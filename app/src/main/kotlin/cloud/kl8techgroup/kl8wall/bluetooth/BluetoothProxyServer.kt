@@ -264,7 +264,14 @@ class BluetoothProxyServer(
                         continue
                     }
                     Log.i(TAG, "Registering mDNS for ESPHome proxy on IP: $ipAddress")
-                    jmdns = JmDNS.create(ipAddress, "kl8wall-ble")
+                    val app = context.applicationContext as KL8WallApplication
+                    val j = app.getOrCreateJmdns(ipAddress.hostAddress ?: "")
+                    if (j == null) {
+                        delay(delayMs)
+                        delayMs = (delayMs * 2).coerceAtMost(30000L)
+                        continue
+                    }
+                    jmdns = j
                     val txtRecords = mapOf(
                         "version" to BuildConfig.VERSION_NAME,
                         "device" to Build.MODEL,
@@ -283,9 +290,6 @@ class BluetoothProxyServer(
                     break
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to register mDNS, retrying in ${delayMs / 1000}s", e)
-                    try {
-                        jmdns?.close()
-                    } catch (_: Exception) {}
                     jmdns = null
                     delay(delayMs)
                     delayMs = (delayMs * 2).coerceAtMost(30000L)
@@ -295,10 +299,13 @@ class BluetoothProxyServer(
     }
 
     private fun unregisterMdns() {
-        try {
-            jmdns?.unregisterAllServices()
-            jmdns?.close()
-        } catch (e: Exception) {}
+        val j = jmdns
+        val service = mdnsServiceInfo
+        if (j != null && service != null) {
+            try {
+                j.unregisterService(service)
+            } catch (e: Exception) {}
+        }
         jmdns = null
         mdnsServiceInfo = null
     }
