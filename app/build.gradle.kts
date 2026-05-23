@@ -16,8 +16,8 @@ android {
         applicationId = "cloud.kl8techgroup.kl8wall"
         minSdk = 24
         targetSdk = 35
-        versionCode = 45
-        versionName = "2.0.43"
+        versionCode = 46
+        versionName = "2.0.44"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -29,9 +29,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("release.keystore")
-            storePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: (project.findProperty("RELEASE_STORE_PASSWORD") as? String) ?: "android"
-            keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: (project.findProperty("RELEASE_KEY_ALIAS") as? String) ?: "kl8wall"
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: (project.findProperty("RELEASE_KEY_PASSWORD") as? String) ?: "android"
+            storePassword = System.getenv("RELEASE_STORE_PASSWORD")?.takeIf { it.isNotEmpty() } ?: (project.findProperty("RELEASE_STORE_PASSWORD") as? String)?.takeIf { it.isNotEmpty() } ?: "android"
+            keyAlias = System.getenv("RELEASE_KEY_ALIAS")?.takeIf { it.isNotEmpty() } ?: (project.findProperty("RELEASE_KEY_ALIAS") as? String)?.takeIf { it.isNotEmpty() } ?: "kl8wall"
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")?.takeIf { it.isNotEmpty() } ?: (project.findProperty("RELEASE_KEY_PASSWORD") as? String)?.takeIf { it.isNotEmpty() } ?: "android"
         }
     }
 
