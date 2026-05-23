@@ -16,3 +16,4 @@ local.properties
 *.env
 /gradle/custom-cacerts
 .kotlin/
+keystore_base64.txt
