@@ -487,6 +487,18 @@ class KL8WallApplication : Application() {
         }
     }
 
+    fun updateMdnsMqttState() {
+        mdnsAdvertiser?.updateMqttState()
+    }
+
+    data class PendingSyncApproval(
+        val requestId: String,
+        val requesterName: String,
+        val deferred: kotlinx.coroutines.CompletableDeferred<Boolean>
+    )
+
+    val pendingSyncApproval = kotlinx.coroutines.flow.MutableStateFlow<PendingSyncApproval?>(null)
+
     companion object {
         lateinit var instance: KL8WallApplication
             private set

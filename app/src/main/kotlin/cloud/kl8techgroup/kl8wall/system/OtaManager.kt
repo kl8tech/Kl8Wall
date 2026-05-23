@@ -195,12 +195,61 @@ class OtaManager(private val context: Context) {
         }
     }
 
+    private fun isDeviceRooted(): Boolean {
+        val paths = arrayOf(
+            "/system/app/Superuser.apk",
+            "/sbin/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/data/local/xbin/su",
+            "/data/local/bin/su",
+            "/system/sd/xbin/su",
+            "/system/bin/failsafe/su",
+            "/data/local/su"
+        )
+        for (path in paths) {
+            if (File(path).exists()) return true
+        }
+        return try {
+            val process = java.lang.Runtime.getRuntime().exec("which su")
+            process.inputStream.use { it.read() } != -1
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun installAsRoot(apkFile: File): Boolean {
+        return try {
+            Log.i(TAG, "Root detected: initiating silent root installation")
+            val process = java.lang.Runtime.getRuntime().exec(arrayOf("su", "-c", "pm install -r ${apkFile.absolutePath}"))
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                Log.i(TAG, "Root install succeeded")
+                true
+            } else {
+                val errorMsg = process.errorStream.bufferedReader().use { it.readText() }
+                Log.e(TAG, "Root install failed: exitCode=$exitCode, error=$errorMsg")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during root installation", e)
+            false
+        }
+    }
+
     private fun installApk(apkFile: File) {
-        if (isDeviceOwner) {
-            Log.i(TAG, "Device Owner mode: initiating silent background installation")
+        if (isDeviceOwner || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Log.i(TAG, "Silent update mode: initiating silent background installation (isDeviceOwner=$isDeviceOwner, SDK=${Build.VERSION.SDK_INT})")
             installSilently(apkFile)
+        } else if (isDeviceRooted()) {
+            val rootSuccess = installAsRoot(apkFile)
+            if (!rootSuccess) {
+                Log.w(TAG, "Root install failed, falling back to interactive install")
+                installWithPrompt(apkFile)
+                _isUpdating.value = false
+            }
         } else {
-            Log.i(TAG, "Standard mode: prompting interactive package installation")
+            Log.i(TAG, "Standard/non-root mode: prompting interactive package installation")
             installWithPrompt(apkFile)
             _isUpdating.value = false
         }

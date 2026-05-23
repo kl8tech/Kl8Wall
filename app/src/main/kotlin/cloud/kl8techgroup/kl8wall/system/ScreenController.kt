@@ -61,6 +61,27 @@ class ScreenController(private val context: Context) {
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                 WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
         )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            activity.setShowWhenLocked(true)
+            activity.setTurnScreenOn(true)
+        }
+
+        // Also acquire a temporary wakeup lock to force the screen to turn on
+        try {
+            val pm = activity.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (pm != null) {
+                val tempLock = pm.newWakeLock(
+                    PowerManager.FULL_WAKE_LOCK or
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                        PowerManager.ON_AFTER_RELEASE,
+                    "kl8wall:tempwake"
+                )
+                tempLock.acquire(3000L)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenController", "Failed to acquire temporary wake lock", e)
+        }
+
         acquireWakeLock()
         _isScreenOn.value = true
     }

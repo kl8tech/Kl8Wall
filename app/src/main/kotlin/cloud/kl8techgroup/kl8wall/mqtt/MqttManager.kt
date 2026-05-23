@@ -237,6 +237,7 @@ class MqttManager(
         castAndLockCollectorsJob?.cancel()
         castAndLockCollectorsJob = null
         _connectionState.value = MqttConnectionState.DISCONNECTED
+        updateMdnsAdvertiser()
         val client = mqttClient
         if (client != null) {
             try {
@@ -315,6 +316,7 @@ class MqttManager(
                             Log.i(TAG, "MQTT connected to $serverURI")
                             _connectionState.value = MqttConnectionState.CONNECTED
                             _lastError.value = null
+                            updateMdnsAdvertiser()
                             publishDiscovery(config.deviceName)
                             subscribeToCommands(config.deviceName)
                             startPeriodicStatusPublisher(config.deviceName)
@@ -325,6 +327,7 @@ class MqttManager(
                             Log.w(TAG, "MQTT connection lost: ${cause?.message}")
                             _connectionState.value = MqttConnectionState.DISCONNECTED
                             _lastError.value = cause?.message ?: "Connection lost"
+                            updateMdnsAdvertiser()
                         }
                         override fun messageArrived(topic: String, message: MqttMessage) {
                             val currentDevice = config.deviceName
@@ -1244,5 +1247,10 @@ class MqttManager(
         Log.i(TAG, "Forcing MQTT reconnect...")
         disconnectSync()
         connectAsync(config)
+    }
+
+    private fun updateMdnsAdvertiser() {
+        val app = context.applicationContext as? KL8WallApplication
+        app?.updateMdnsMqttState()
     }
 }

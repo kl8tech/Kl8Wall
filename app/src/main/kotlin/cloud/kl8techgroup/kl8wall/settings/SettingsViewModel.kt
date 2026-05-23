@@ -1,8 +1,16 @@
 package cloud.kl8techgroup.kl8wall.settings
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import cloud.kl8techgroup.kl8wall.kiosk.PinHasher
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
+import org.json.JSONArray
 
 /**
  * ViewModel bridging the settings UI to [SettingsRepository].
@@ -115,4 +123,110 @@ class SettingsViewModel(
     fun verifyPin(pin: String): Boolean = PinHasher.verify(pin, repository.getPinHash())
 
     fun completeFirstRun() = repository.completeFirstRun()
+
+    fun syncPublicConfig(
+        peerIp: String,
+        peerPort: Int,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("http://$peerIp:$peerPort/api/peer/public_config")
+                connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.requestMethod = "GET"
+                
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val text = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(text)
+                    
+                    withContext(Dispatchers.Main) {
+                        repository.setStartUrl(json.optString("startUrl", ""))
+                        repository.setMqttBroker(json.optString("mqttBroker", ""))
+                        repository.setMqttPort(json.optInt("mqttPort", 1883))
+                        
+                        val hostsArray = json.optJSONArray("allowedHosts")
+                        if (hostsArray != null) {
+                            val hostsSet = mutableSetOf<String>()
+                            for (i in 0 until hostsArray.length()) {
+                                hostsSet.add(hostsArray.getString(i))
+                            }
+                            repository.setAllowedHosts(hostsSet)
+                        }
+                        
+                        repository.setSensorIntervalSeconds(json.optInt("sensorIntervalSeconds", 30))
+                        repository.setPresenceTimeoutSeconds(json.optInt("presenceTimeoutSeconds", 60))
+                        repository.setBluetoothProxyEnabled(json.optBoolean("bluetoothProxyEnabled", false))
+                        repository.setCameraIntervalMinutes(json.optInt("cameraIntervalMinutes", 60))
+                        onSuccess()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onError("Server returned status ${connection.responseCode}")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "Failed to connect to peer")
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    fun syncSecureConfig(
+        peerIp: String,
+        peerPort: Int,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val localName = repository.deviceName.value
+                val encodedName = java.net.URLEncoder.encode(localName, "UTF-8")
+                val url = URL("http://$peerIp:$peerPort/api/peer/secure_config?requester_name=$encodedName")
+                connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 35000 // 35 seconds to allow time for approval
+                connection.readTimeout = 35000
+                connection.requestMethod = "GET"
+                
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val text = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(text)
+                    
+                    withContext(Dispatchers.Main) {
+                        val token = json.optString("haToken", "")
+                        if (token.isNotEmpty()) {
+                            repository.setHaToken(token)
+                        }
+                        val mqttPassword = json.optString("mqttPassword", "")
+                        if (mqttPassword.isNotEmpty()) {
+                            repository.setMqttPassword(mqttPassword)
+                        }
+                        onSuccess()
+                    }
+                } else {
+                    val errorText = try {
+                        val errorJson = connection.errorStream?.bufferedReader()?.use { it.readText() }
+                        if (errorJson != null) JSONObject(errorJson).optString("message", "") else ""
+                    } catch (_: Exception) { "" }
+                    
+                    withContext(Dispatchers.Main) {
+                        onError(errorText.ifBlank { "Request denied or timed out" })
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "Sync request failed")
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
 }

@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -185,6 +187,7 @@ private fun SettingsSliderRow(
 @Composable
 fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var activeTab by remember { mutableStateOf(0) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -195,8 +198,7 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState()),
+                .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Text(
@@ -206,15 +208,65 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
-            ConnectionCard(viewModel)
-            DisplaySleepCard(viewModel)
-            BatterySaverCard(viewModel)
-            IntercomCard(viewModel)
-            NetworkSecurityCard(viewModel)
-            MqttIdentityCard(viewModel)
-            SystemMaintenanceCard()
-            DeveloperSection()
-            Spacer(modifier = Modifier.height(16.dp))
+
+            // Premium custom Pill-shaped scrollable tabs switcher
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val tabs = listOf("General", "Hardware", "MQTT", "Mesh / P2P")
+                tabs.forEachIndexed { index, title ->
+                    val isSelected = activeTab == index
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .clickable { activeTab = index }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                when (activeTab) {
+                    0 -> { // General
+                        ConnectionCard(viewModel)
+                        NetworkSecurityCard(viewModel)
+                        SystemMaintenanceCard()
+                        DeveloperSection()
+                    }
+                    1 -> { // Hardware
+                        DisplaySleepCard(viewModel)
+                        BatterySaverCard(viewModel)
+                        IntercomCard(viewModel)
+                    }
+                    2 -> { // MQTT
+                        MqttIdentityCard(viewModel)
+                    }
+                    3 -> { // Mesh / P2P
+                        MeshNetworkCard(viewModel)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
         }
     }
 }
@@ -924,6 +976,239 @@ private fun MqttIdentityCard(viewModel: SettingsViewModel) {
 }
 
 @Composable
+private fun MeshNetworkCard(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val app = context.applicationContext as? KL8WallApplication
+    val peerManager = app?.peerManager
+    
+    // Live Discovered Peers state
+    var peerList by remember { mutableStateOf(emptyList<cloud.kl8techgroup.kl8wall.peer.PeerManager.PeerInfo>()) }
+    LaunchedEffect(peerManager) {
+        while (true) {
+            peerList = peerManager?.peers?.values?.toList() ?: emptyList()
+            delay(2000)
+        }
+    }
+    
+    // Sync Code Generation state
+    var generatedCode by remember { mutableStateOf("") }
+    var codeTimeRemaining by remember { mutableStateOf(0) }
+    LaunchedEffect(generatedCode) {
+        if (generatedCode.isNotEmpty()) {
+            codeTimeRemaining = 120
+            while (codeTimeRemaining > 0) {
+                delay(1000)
+                codeTimeRemaining--
+            }
+            generatedCode = ""
+        }
+    }
+    
+    // Config Sync state
+    var selectedPeer by remember { mutableStateOf<cloud.kl8techgroup.kl8wall.peer.PeerManager.PeerInfo?>(null) }
+    var syncInProgress by remember { mutableStateOf(false) }
+
+    SettingsCard(title = "Mesh & P2P Network") {
+        // 1. Live Discovered Peers
+        Text(
+            text = "Discovered Mesh Panels",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        
+        if (peerList.isEmpty()) {
+            Text(
+                text = "No other mesh panels discovered yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            peerList.forEach { peer ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(peer.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("${peer.ip}:${peer.port}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val ago = (System.currentTimeMillis() - peer.lastSeen) / 1000
+                            Text("Last seen: ${ago}s ago", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val color = if (peer.mqttConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
+                            androidx.compose.foundation.Canvas(modifier = Modifier.size(8.dp)) {
+                                drawCircle(color = color)
+                            }
+                            Text(
+                                text = if (peer.mqttConnected) "MQTT Online" else "MQTT Offline",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = color,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+        
+        // 2. Share Settings (Generate Sync Code)
+        Text(
+            text = "Share Settings to New Panel",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "Generate a temporary 6-digit sync code that another panel can use to securely download your settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        if (generatedCode.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp)).padding(16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Temporary Sync Code", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(
+                        text = "${generatedCode.take(3)} ${generatedCode.drop(3)}",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text("Expires in ${codeTimeRemaining}s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+        } else {
+            Button(
+                onClick = {
+                    generatedCode = peerManager?.generateSyncCode() ?: ""
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Generate Sync Code")
+            }
+        }
+        
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+        
+        // 3. Receive Settings (Auto-Fill & Secure Sync)
+        Text(
+            text = "Import Settings from Peer",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        
+        val onlinePeers = peerList
+        if (onlinePeers.isEmpty()) {
+            Text(
+                text = "No peers available to import from.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Select Peer:", style = MaterialTheme.typography.bodySmall)
+                
+                // Render a simple Row list of peers to tap and select
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    onlinePeers.forEach { peer ->
+                        val isSel = selectedPeer?.name == peer.name
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isSel) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { selectedPeer = peer }
+                                .padding(8.dp)
+                                .width(120.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(peer.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                
+                selectedPeer?.let { peer ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                syncInProgress = true
+                                viewModel.syncPublicConfig(
+                                    peerIp = peer.ip,
+                                    peerPort = peer.port,
+                                    onSuccess = {
+                                        syncInProgress = false
+                                        Toast.makeText(context, "Public settings synced!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { err ->
+                                        syncInProgress = false
+                                        Toast.makeText(context, "Sync failed: $err", Toast.LENGTH_LONG).show()
+                                    }
+                                )
+                            },
+                            enabled = !syncInProgress,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Sync Preferences")
+                        }
+                        
+                        Button(
+                            onClick = {
+                                syncInProgress = true
+                                viewModel.syncSecureConfig(
+                                    peerIp = peer.ip,
+                                    peerPort = peer.port,
+                                    onSuccess = {
+                                        syncInProgress = false
+                                        Toast.makeText(context, "All settings & credentials synced!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { err ->
+                                        syncInProgress = false
+                                        Toast.makeText(context, "Credentials sync failed: $err", Toast.LENGTH_LONG).show()
+                                    }
+                                )
+                            },
+                            enabled = !syncInProgress,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (syncInProgress) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onSecondary)
+                            } else {
+                                Text("Sync All (Credentials)")
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Note: 'Sync All' triggers a 'Tap-to-Approve' prompt on the other panel's screen to safely transfer passwords.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SystemMaintenanceCard() {
     val context = LocalContext.current
     val app = context.applicationContext as? KL8WallApplication
@@ -1103,6 +1388,120 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
         )
         
         Spacer(modifier = Modifier.height(8.dp))
+
+        // Easy Setup / Config Sync from other panels
+        val peerManager = (context.applicationContext as? KL8WallApplication)?.peerManager
+        var peerList by remember { mutableStateOf(emptyList<cloud.kl8techgroup.kl8wall.peer.PeerManager.PeerInfo>()) }
+        LaunchedEffect(peerManager) {
+            while (true) {
+                peerList = peerManager?.peers?.values?.toList() ?: emptyList()
+                delay(2000)
+            }
+        }
+        
+        var selectedPeerForSetup by remember { mutableStateOf<cloud.kl8techgroup.kl8wall.peer.PeerManager.PeerInfo?>(null) }
+        var setupSyncInProgress by remember { mutableStateOf(false) }
+
+        // Home Assistant Server Auto-Discovery Pre-fill
+        var resolvedHaUrl by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(peerManager) {
+            while (resolvedHaUrl == null) {
+                val resolved = peerManager?.localHaUrl
+                if (resolved != null && resolved.isNotEmpty()) {
+                    resolvedHaUrl = resolved
+                    if (url.isBlank()) {
+                        url = resolved
+                        val uri = java.net.URI(resolved)
+                        val host = uri.host
+                        if (host != null && host.isNotEmpty() && editMqttBroker.isBlank()) {
+                            editMqttBroker = host
+                        }
+                    }
+                }
+                delay(1000)
+            }
+        }
+
+        if (peerList.isNotEmpty()) {
+            SettingsCard(title = "Easy Setup: Sync from Peer") {
+                Text(
+                    text = "Discovered panels on your local network. You can import all settings from them automatically instead of typing them.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    peerList.forEach { peer ->
+                        val isSel = selectedPeerForSetup?.name == peer.name
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isSel) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { selectedPeerForSetup = peer }
+                                .padding(8.dp)
+                                .width(120.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(peer.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                
+                selectedPeerForSetup?.let { peer ->
+                    Button(
+                        onClick = {
+                            setupSyncInProgress = true
+                            viewModel.syncPublicConfig(
+                                peerIp = peer.ip,
+                                peerPort = peer.port,
+                                onSuccess = {
+                                    url = viewModel.startUrl.value
+                                    editMqttBroker = viewModel.mqttBroker.value
+                                    editMqttPort = viewModel.mqttPort.value.toString()
+                                    editMqttUsername = viewModel.mqttUsername.value
+                                    editBleProxy = viewModel.bluetoothProxyEnabled.value
+                                    editPresence = viewModel.presenceSensorEnabled.value
+                                    editTimeout = viewModel.presenceTimeoutSeconds.value.toString()
+                                    editCameraInterval = viewModel.cameraIntervalMinutes.value.toString()
+                                    
+                                    viewModel.syncSecureConfig(
+                                        peerIp = peer.ip,
+                                        peerPort = peer.port,
+                                        onSuccess = {
+                                            setupSyncInProgress = false
+                                            token = "Saved from sync"
+                                            editMqttPassword = "Saved from sync"
+                                            Toast.makeText(context, "Full setup credentials imported!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onError = { err ->
+                                            setupSyncInProgress = false
+                                            Toast.makeText(context, "Imported preferences; credentials failed: $err", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                },
+                                onError = { err ->
+                                    setupSyncInProgress = false
+                                    Toast.makeText(context, "Import failed: $err", Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        },
+                        enabled = !setupSyncInProgress,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (setupSyncInProgress) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                        } else {
+                            Text("Import Setup from ${peer.name}")
+                        }
+                    }
+                }
+            }
+        }
         
         // 1. Home Assistant URL Card
         SettingsCard(title = "1. Home Assistant Connection") {
@@ -1244,7 +1643,7 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
                 
                 // Save HA settings
                 viewModel.setStartUrl(url.trim())
-                if (token.isNotBlank()) viewModel.setHaToken(token.trim())
+                if (token.isNotBlank() && token != "Saved from sync") viewModel.setHaToken(token.trim())
                 
                 // Save Device Identity & MQTT settings
                 viewModel.setDeviceName(editDeviceName.trim())
@@ -1253,7 +1652,7 @@ fun FirstRunSetup(viewModel: SettingsViewModel, onComplete: () -> Unit) {
                 val port = editMqttPort.toIntOrNull() ?: 1883
                 viewModel.setMqttPort(port)
                 viewModel.setMqttUsername(editMqttUsername.trim())
-                viewModel.setMqttPassword(editMqttPassword.trim())
+                if (editMqttPassword != "Saved from sync") viewModel.setMqttPassword(editMqttPassword.trim())
                 
                 // Save Sensors & Proxy settings
                 viewModel.setBluetoothProxyEnabled(editBleProxy)

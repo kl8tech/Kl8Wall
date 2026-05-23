@@ -51,6 +51,13 @@ class PeerManager(
     // Map of discovered peers, keyed by device name (friendly name)
     val peers = ConcurrentHashMap<String, PeerInfo>()
 
+    @Volatile
+    var activeSyncCode: String? = null
+        private set
+    @Volatile
+    var syncCodeExpiry: Long = 0L
+        private set
+
     // Track active external dynamic subscriptions to peer command topics
     private val activePeerSubscriptions = ConcurrentHashMap.newKeySet<String>()
 
@@ -77,6 +84,18 @@ class PeerManager(
         startDiscovery()
         startPolling()
         startRelayTracking()
+
+        scope.launch {
+            val app = context.applicationContext as? KL8WallApplication
+            while (app?.mqttManager == null && isActive) {
+                delay(200)
+            }
+            app?.mqttManager?.connectionState?.collect { state ->
+                Log.i(TAG, "Local MQTT connection state changed to: $state. Re-evaluating dynamic subscriptions and proxies.")
+                evaluateDynamicSubscriptions()
+                evaluateEsphomeProxies()
+            }
+        }
     }
 
     fun stop() {
@@ -377,13 +396,20 @@ class PeerManager(
      * Called when our own MQTT connection is offline.
      */
     fun sendRelayMessage(topic: String, payload: String, isBase64: Boolean = false): Boolean {
-        // Find an online peer that has working MQTT
-        val targetPeer = peers.values.firstOrNull { it.mqttConnected } ?: return false
+        val candidates = peers.values.filter { it.mqttConnected }.toList()
+        if (candidates.isEmpty()) return false
         
         scope.launch {
-            val success = relayMessageToPeer(targetPeer, topic, payload, isBase64)
-            if (success) {
-                lastRelayUsageTime = System.currentTimeMillis()
+            for (peer in candidates) {
+                val success = relayMessageToPeer(peer, topic, payload, isBase64)
+                if (success) {
+                    lastRelayUsageTime = System.currentTimeMillis()
+                    break // Relay succeeded, stop trying others
+                } else {
+                    Log.w(TAG, "Relay to peer ${peer.name} failed, trying next candidate if available...")
+                    // Mark this peer as disconnected locally so we don't spam it
+                    peer.mqttConnected = false
+                }
             }
         }
         return true
@@ -482,6 +508,27 @@ class PeerManager(
         } catch (e: Exception) {
             ""
         }
+    }
+
+    fun generateSyncCode(): String {
+        val code = (100000..999999).random().toString()
+        activeSyncCode = code
+        syncCodeExpiry = System.currentTimeMillis() + 120000 // 2 minutes
+        Log.i(TAG, "Generated configuration sync code: $code")
+        return code
+    }
+
+    fun verifySyncCode(code: String): Boolean {
+        val active = activeSyncCode ?: return false
+        if (System.currentTimeMillis() > syncCodeExpiry) {
+            activeSyncCode = null
+            return false
+        }
+        val match = active == code.trim()
+        if (match) {
+            activeSyncCode = null // consume on success
+        }
+        return match
     }
 
     private fun evaluateEsphomeProxies() {

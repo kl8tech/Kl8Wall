@@ -31,6 +31,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.Text
 import cloud.kl8techgroup.kl8wall.cast.CastManager
 import cloud.kl8techgroup.kl8wall.cast.CastOverlay
 import cloud.kl8techgroup.kl8wall.kiosk.HotCornerDetector
@@ -779,6 +792,7 @@ private fun KL8WallScreen(
     val scope = rememberCoroutineScope()
 
     val app = context.applicationContext as KL8WallApplication
+    val pendingSyncApproval by app.pendingSyncApproval.collectAsState()
     var passcodeLockManager by remember { mutableStateOf<PasscodeLockManager?>(app.passcodeLockManager) }
     var castManager by remember { mutableStateOf<CastManager?>(app.castManager) }
     LaunchedEffect(Unit) {
@@ -909,6 +923,62 @@ private fun KL8WallScreen(
                     }
                 }
             )
+        }
+
+        pendingSyncApproval?.let { approval ->
+            Dialog(
+                onDismissRequest = {
+                    approval.deferred.complete(false)
+                    app.pendingSyncApproval.value = null
+                }
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "Config Sync Request",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Allow device '${approval.requesterName}' to sync passwords and access tokens?",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    approval.deferred.complete(true)
+                                    app.pendingSyncApproval.value = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Approve")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    approval.deferred.complete(false)
+                                    app.pendingSyncApproval.value = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Deny")
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

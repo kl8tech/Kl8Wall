@@ -1,6 +1,6 @@
 {
-  "version": "2.0.44",
-  "versionCode": 46,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.44/kl8wall-v46.apk",
-  "changelog": "Fix microphone shim error and resolve release keystore and signing password fallback corruption in GitHub Actions."
+  "version": "2.0.46",
+  "versionCode": 48,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.46/kl8wall-v48.apk",
+  "changelog": "Add Tabbed Settings, Live Mesh list, secure import sync via Tap-to-Approve confirmation, background silent self-updates and auto-relaunch, and reliable screen waking on voice commands."
 }

@@ -83,6 +83,8 @@ class KL8WallHttpServer(
         "POST /api/reboot" -> handleReboot()
         "POST /api/peer/relay" -> handlePeerRelay(session)
         "POST /api/peer/command" -> handlePeerCommand(session)
+        "GET /api/peer/public_config" -> handleGetPublicConfig()
+        "GET /api/peer/secure_config" -> handleGetSecureConfig(session)
         else -> errorResponse(Response.Status.NOT_FOUND, "Not found")
     }
 
@@ -403,6 +405,57 @@ class KL8WallHttpServer(
             return successResponse()
         } else {
             return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "MQTT service not available")
+        }
+    }
+
+    private fun handleGetPublicConfig(): Response {
+        val configObj = JSONObject().apply {
+            put("startUrl", settingsRepository.startUrl.value)
+            put("mqttBroker", settingsRepository.mqttBroker.value)
+            put("mqttPort", settingsRepository.mqttPort.value)
+            put("allowedHosts", org.json.JSONArray(settingsRepository.allowedHosts.value.toList()))
+            put("sensorIntervalSeconds", settingsRepository.sensorIntervalSeconds.value)
+            put("presenceTimeoutSeconds", settingsRepository.presenceTimeoutSeconds.value)
+            put("bluetoothProxyEnabled", settingsRepository.bluetoothProxyEnabled.value)
+            put("cameraIntervalMinutes", settingsRepository.cameraIntervalMinutes.value)
+        }
+        return jsonResponse(Response.Status.OK, configObj.toString())
+    }
+
+    @Suppress("DEPRECATION")
+    private fun handleGetSecureConfig(session: IHTTPSession): Response {
+        val parms = session.parms
+        val requesterName = parms["requester_name"] ?: "Unknown Panel"
+        
+        val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        val requestId = java.util.UUID.randomUUID().toString()
+        val approval = KL8WallApplication.PendingSyncApproval(
+            requestId = requestId,
+            requesterName = requesterName,
+            deferred = deferred
+        )
+        
+        KL8WallApplication.instance.pendingSyncApproval.value = approval
+        
+        val approved = runBlocking {
+            kotlinx.coroutines.withTimeoutOrNull(30000) {
+                deferred.await()
+            } ?: false
+        }
+        
+        // Reset approval state
+        if (KL8WallApplication.instance.pendingSyncApproval.value?.requestId == requestId) {
+            KL8WallApplication.instance.pendingSyncApproval.value = null
+        }
+        
+        if (approved) {
+            val secureConfig = JSONObject().apply {
+                put("haToken", settingsRepository.getHaToken() ?: "")
+                put("mqttPassword", settingsRepository.mqttPassword.value)
+            }
+            return jsonResponse(Response.Status.OK, secureConfig.toString())
+        } else {
+            return errorResponse(Response.Status.FORBIDDEN, "Configuration sync request was denied or timed out")
         }
     }
 
