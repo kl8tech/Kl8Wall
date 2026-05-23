@@ -20,7 +20,7 @@ class PresenceSensorManager(
     private val context: Context,
     private val settingsRepository: SettingsRepository,
     private val mqttManager: MqttManager,
-    private val deviceController: DeviceController
+    @field:Volatile private var deviceController: DeviceController?
 ) : SensorEventListener {
 
     companion object {
@@ -113,6 +113,11 @@ class PresenceSensorManager(
         scope.cancel()
     }
 
+    fun updateDeviceController(newController: DeviceController) {
+        Log.i(TAG, "Updating PresenceSensorManager deviceController reference")
+        this.deviceController = newController
+    }
+
     private fun registerSensors() {
         Log.i(TAG, "Registering hardware sensors")
         lightSensor?.let {
@@ -148,9 +153,9 @@ class PresenceSensorManager(
     }
 
     fun mapLuxToBrightness(lux: Float, minPercent: Int): Int {
-        val clampedLux = lux.coerceIn(1.0f, 500.0f)
+        val clampedLux = lux.coerceIn(1.0f, 150.0f)
         val logLux = kotlin.math.log10(clampedLux.toDouble())
-        val logMax = kotlin.math.log10(500.0)
+        val logMax = kotlin.math.log10(150.0)
         val percent = minPercent + (logLux / logMax * (100 - minPercent))
         return percent.toInt().coerceIn(minPercent, 100)
     }
@@ -197,15 +202,21 @@ class PresenceSensorManager(
 
         // Wake screen on presence, or turn off on absence
         withContext(Dispatchers.Main) {
+            val controller = deviceController
             if (present) {
-                if (!deviceController.isScreenOn()) {
-                    Log.i(TAG, "Waking up screen due to presence detection")
-                    deviceController.screenOn()
+                if (controller != null) {
+                    if (!controller.isScreenOn()) {
+                        Log.i(TAG, "Waking up screen due to presence detection")
+                        controller.screenOn()
+                    }
+                } else {
+                    Log.i(TAG, "Presence detected but deviceController is null. Waking up screen by launching MainActivity.")
+                    (context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication)?.launchMainActivity()
                 }
             } else {
-                if (!settingsRepository.screenAlwaysOn.value && deviceController.isScreenOn()) {
+                if (controller != null && !settingsRepository.screenAlwaysOn.value && controller.isScreenOn()) {
                     Log.i(TAG, "Turning off screen due to presence timeout")
-                    deviceController.screenOff()
+                    controller.screenOff()
                 }
             }
         }
@@ -291,7 +302,11 @@ class PresenceSensorManager(
         }
         smoothedLux = nextSmoothed
 
-        val minPct = settingsRepository.minBrightnessPercent.value
+        val minPct = if (isPresent) {
+            Math.max(settingsRepository.minBrightnessPercent.value, 30)
+        } else {
+            settingsRepository.minBrightnessPercent.value
+        }
         val targetBrightness = mapLuxToBrightness(nextSmoothed, minPct)
 
         val lastSet = lastSetBrightness
@@ -299,7 +314,13 @@ class PresenceSensorManager(
         if (lastSet == null || abs(targetBrightness - lastSet) >= 3) {
             lastSetBrightness = targetBrightness
             scope.launch(Dispatchers.Main) {
-                deviceController.setBrightness(targetBrightness)
+                val controller = deviceController
+                if (controller != null) {
+                    controller.setBrightness(targetBrightness)
+                } else {
+                    val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
+                    app?.brightnessController?.setBrightness(targetBrightness)
+                }
             }
         }
     }

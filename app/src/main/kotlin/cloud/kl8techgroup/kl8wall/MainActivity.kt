@@ -410,7 +410,7 @@ class MainActivity : ComponentActivity() {
         }
         val app = application as KL8WallApplication
         app.deviceController = null
-        app.stopServices()
+        app.cameraManager?.clearLifecycleOwner()
     }
 
     private fun startWebViewRecoveryLoop() {

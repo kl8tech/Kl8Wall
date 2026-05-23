@@ -62,14 +62,14 @@ class KL8WallHttpServer(
     private fun route(session: IHTTPSession): Response = when ("${session.method} ${session.uri}") {
         "GET /api/status" -> handleStatus()
         "GET /api/config" -> handleConfig()
-        "GET /api/brightness" -> withController { handleBrightness(it) }
-        "POST /api/brightness" -> withController { handleSetBrightness(it, session) }
-        "POST /api/screen/on" -> withController { handleScreenOn(it) }
-        "POST /api/screen/off" -> withController { handleScreenOff(it) }
-        "POST /api/navigate" -> withController { handleNavigate(it, session) }
-        "POST /api/reload" -> withController { handleReload(it) }
-        "POST /api/tts" -> withController { handleTts(it, session) }
-        "POST /api/tts/stop" -> withController { handleTtsStop(it) }
+        "GET /api/brightness" -> handleBrightness()
+        "POST /api/brightness" -> handleSetBrightness(session)
+        "POST /api/screen/on" -> handleScreenOn()
+        "POST /api/screen/off" -> handleScreenOff()
+        "POST /api/navigate" -> handleNavigate(session)
+        "POST /api/reload" -> handleReload()
+        "POST /api/tts" -> handleTts(session)
+        "POST /api/tts/stop" -> handleTtsStop()
         "GET /api/screenshot" -> handleScreenshot()
         "POST /api/update/check" -> handleCheckUpdate()
         "POST /api/update/install" -> handleInstallUpdate()
@@ -80,7 +80,7 @@ class KL8WallHttpServer(
         "GET /api/cast/status" -> handleCastStatus()
         "POST /api/lock" -> handleLock()
         "POST /api/unlock" -> handleUnlock()
-        "POST /api/reboot" -> withController { handleReboot(it) }
+        "POST /api/reboot" -> handleReboot()
         "POST /api/peer/relay" -> handlePeerRelay(session)
         "POST /api/peer/command" -> handlePeerCommand(session)
         else -> errorResponse(Response.Status.NOT_FOUND, "Not found")
@@ -179,8 +179,13 @@ class KL8WallHttpServer(
         return successResponse()
     }
 
-    private fun handleReboot(controller: DeviceController): Response {
-        controller.rebootApp()
+    private fun handleReboot(): Response {
+        val controller = deviceControllerProvider()
+        if (controller != null) {
+            controller.rebootApp()
+        } else {
+            KL8WallApplication.instance.rebootApplication()
+        }
         return successResponse()
     }
 
@@ -194,48 +199,61 @@ class KL8WallHttpServer(
         return jsonResponse(Response.Status.OK, json.encodeToString(ConfigResponse.serializer(), config))
     }
 
-    private fun handleScreenOn(controller: DeviceController): Response {
-        controller.screenOn()
+    private fun handleScreenOn(): Response {
+        val controller = deviceControllerProvider()
+        if (controller != null) {
+            controller.screenOn()
+        } else {
+            KL8WallApplication.instance.launchMainActivity()
+        }
         return successResponse()
     }
 
-    private fun handleScreenOff(controller: DeviceController): Response {
-        controller.screenOff()
+    private fun handleScreenOff(): Response {
+        val controller = deviceControllerProvider()
+        controller?.screenOff()
         return successResponse()
     }
 
-    private fun handleReload(controller: DeviceController): Response {
-        controller.reload()
+    private fun handleReload(): Response {
+        val controller = deviceControllerProvider()
+        if (controller != null) {
+            controller.reload()
+        } else {
+            KL8WallApplication.instance.launchMainActivity()
+        }
         return successResponse()
     }
 
-    private fun handleTtsStop(controller: DeviceController): Response {
-        controller.stopSpeaking()
+    private fun handleTtsStop(): Response {
+        KL8WallApplication.instance.ttsController.stopSpeaking()
         return successResponse()
     }
 
-    private fun handleBrightness(controller: DeviceController): Response {
+    private fun handleBrightness(): Response {
+        val app = KL8WallApplication.instance
         val response = BrightnessResponse(
-            brightness = controller.getBrightness(),
-            canWrite = controller.canWriteSettings()
+            brightness = app.brightnessController.getBrightness(),
+            canWrite = app.brightnessController.canWriteSettings()
         )
         return jsonResponse(Response.Status.OK, json.encodeToString(BrightnessResponse.serializer(), response))
     }
 
-    private fun handleSetBrightness(controller: DeviceController, session: IHTTPSession): Response {
+    private fun handleSetBrightness(session: IHTTPSession): Response {
         val body = readBody(session)
         val request = try {
             json.decodeFromString(BrightnessRequest.serializer(), body)
         } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
             return errorResponse(Response.Status.BAD_REQUEST, "Invalid JSON body, expected {\"brightness\": 0-100}")
         }
-        if (!controller.setBrightness(request.brightness)) {
+        val app = KL8WallApplication.instance
+        if (!app.brightnessController.setBrightness(request.brightness)) {
             return errorResponse(Response.Status.FORBIDDEN, "WRITE_SETTINGS permission not granted")
         }
         return successResponse()
     }
 
-    private fun handleNavigate(controller: DeviceController, session: IHTTPSession): Response {
+    private fun handleNavigate(session: IHTTPSession): Response {
         val body = readBody(session)
         val request = try {
             json.decodeFromString(NavigateRequest.serializer(), body)
@@ -245,11 +263,16 @@ class KL8WallHttpServer(
         if (request.url.isBlank()) {
             return errorResponse(Response.Status.BAD_REQUEST, "URL must not be blank")
         }
-        controller.navigate(request.url)
+        val controller = deviceControllerProvider()
+        if (controller != null) {
+            controller.navigate(request.url)
+        } else {
+            KL8WallApplication.instance.launchMainActivity(request.url)
+        }
         return successResponse()
     }
 
-    private fun handleTts(controller: DeviceController, session: IHTTPSession): Response {
+    private fun handleTts(session: IHTTPSession): Response {
         val body = readBody(session)
         val request = try {
             json.decodeFromString(TtsRequest.serializer(), body)
@@ -259,7 +282,7 @@ class KL8WallHttpServer(
         if (request.text.isBlank()) {
             return errorResponse(Response.Status.BAD_REQUEST, "Text must not be blank")
         }
-        controller.speak(request.text)
+        KL8WallApplication.instance.ttsController.speak(request.text)
         return successResponse()
     }
 

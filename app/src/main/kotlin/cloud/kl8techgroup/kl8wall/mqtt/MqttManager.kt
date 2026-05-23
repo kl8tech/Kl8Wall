@@ -42,7 +42,7 @@ enum class MqttConnectionState {
 class MqttManager(
     private val context: Context,
     private val settingsRepository: SettingsRepository,
-    private val deviceController: DeviceController,
+    @field:Volatile private var deviceController: DeviceController?,
     private val onIncomingAudio: (ByteArray) -> Unit,
     private val onIntercomCommand: (String) -> Unit
 ) {
@@ -207,6 +207,11 @@ class MqttManager(
         Log.d(TAG, "Stopping MqttManager...")
         scope.cancel()
         disconnectSync()
+    }
+
+    fun updateDeviceController(newController: DeviceController) {
+        Log.i(TAG, "Updating MqttManager deviceController reference")
+        this.deviceController = newController
     }
 
     private suspend fun handleConfigChange(config: MqttConfig) {
@@ -659,32 +664,61 @@ class MqttManager(
     private fun handleCommand(topic: String, payload: String, deviceName: String) {
         scope.launch(Dispatchers.Main) {
             try {
+                val app = context.applicationContext as? KL8WallApplication
                 when (topic) {
                     "kl8wall/$deviceName/screen/cmd" -> {
+                        val controller = deviceController
                         if (payload.uppercase() == "ON") {
-                            deviceController.screenOn()
+                            if (controller != null) {
+                                controller.screenOn()
+                            } else {
+                                app?.launchMainActivity()
+                            }
                             publishScreenState(deviceName, true)
                         } else if (payload.uppercase() == "OFF") {
-                            deviceController.screenOff()
+                            controller?.screenOff()
                             publishScreenState(deviceName, false)
                         }
                     }
                     "kl8wall/$deviceName/brightness/cmd" -> {
                         val percent = payload.toIntOrNull()
                         if (percent != null && percent in 0..100) {
-                            deviceController.setBrightness(percent)
+                            app?.brightnessController?.setBrightness(percent)
                             publishBrightnessState(deviceName, percent)
                         }
                     }
-                    "kl8wall/$deviceName/reload/cmd" -> deviceController.reload()
+                    "kl8wall/$deviceName/reload/cmd" -> {
+                        val controller = deviceController
+                        if (controller != null) {
+                            controller.reload()
+                        } else {
+                            app?.launchMainActivity()
+                        }
+                    }
                     "kl8wall/$deviceName/snapshot/cmd" -> onSnapshotTrigger?.invoke()
-                    "kl8wall/$deviceName/tts/cmd" -> deviceController.speak(payload)
-                    "kl8wall/$deviceName/settings/cmd" -> deviceController.openSettings()
-                    "kl8wall/$deviceName/reboot/cmd" -> deviceController.rebootApp()
+                    "kl8wall/$deviceName/tts/cmd" -> {
+                        app?.ttsController?.speak(payload)
+                    }
+                    "kl8wall/$deviceName/settings/cmd" -> {
+                        val controller = deviceController
+                        if (controller != null) {
+                            controller.openSettings()
+                        } else {
+                            app?.launchMainActivity(openSettings = true)
+                        }
+                    }
+                    "kl8wall/$deviceName/reboot/cmd" -> {
+                        val controller = deviceController
+                        if (controller != null) {
+                            controller.rebootApp()
+                        } else {
+                            app?.rebootApplication()
+                        }
+                    }
                     "kl8wall/$deviceName/screen_timeout/cmd", "kl8wall/$deviceName/presence_timeout/cmd" -> {
                         val secs = payload.toIntOrNull()
                         if (secs != null) {
-                            deviceController.setScreenTimeoutSeconds(secs)
+                            app?.settingsRepository?.setPresenceTimeoutSeconds(secs)
                             publishString("kl8wall/$deviceName/screen_timeout/state", secs.toString(), true)
                             publishString("kl8wall/$deviceName/presence_timeout/state", secs.toString(), true)
                         }
@@ -692,7 +726,10 @@ class MqttManager(
                     "kl8wall/$deviceName/tts_volume/cmd" -> {
                         val vol = payload.toIntOrNull()
                         if (vol != null) {
-                            deviceController.setTtsVolume(vol)
+                            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                            val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                            val target = (vol.coerceIn(0, 100) * max / 100f).toInt()
+                            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0)
                             publishString("kl8wall/$deviceName/tts_volume/state", vol.toString(), true)
                         }
                     }
@@ -715,7 +752,6 @@ class MqttManager(
                         }
                     }
                     "kl8wall/$deviceName/camera_streaming/cmd" -> {
-                        val app = context as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         if (payload.uppercase() == "ON") {
                             app?.cameraManager?.isStreamingEnabled = true
                             publishCameraStreamingState(deviceName, true)
@@ -725,7 +761,6 @@ class MqttManager(
                         }
                     }
                     "kl8wall/$deviceName/screenshot/cmd" -> {
-                        val app = context as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         if (app != null) {
                             scope.launch {
                                 val bytes = app.captureCurrentScreen()
@@ -736,50 +771,41 @@ class MqttManager(
                         }
                     }
                     "kl8wall/$deviceName/check_update/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         app?.serverScope?.launch {
                             app.otaManager.checkForUpdates(false)
                         }
                     }
                     "kl8wall/$deviceName/trigger_update/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         app?.serverScope?.launch {
                             app.otaManager.triggerUpdate()
                         }
                     }
                     "kl8wall/$deviceName/update/cmd" -> {
                         if (payload.lowercase() == "install") {
-                            val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                             app?.serverScope?.launch {
                                 app.otaManager.triggerUpdate()
                             }
                         }
                     }
                     "kl8wall/$deviceName/cast_url/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         app?.castManager?.cast(payload)
                     }
                     "kl8wall/$deviceName/cast_volume/cmd" -> {
                         val vol = payload.toIntOrNull()
                         if (vol != null) {
-                            val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                             app?.castManager?.setVolume(vol)
                         }
                     }
                     "kl8wall/$deviceName/cast_play/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         app?.castManager?.play()
                     }
                     "kl8wall/$deviceName/cast_pause/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         app?.castManager?.pause()
                     }
                     "kl8wall/$deviceName/cast_stop/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         app?.castManager?.stop()
                     }
                     "kl8wall/$deviceName/lock/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         if (payload.uppercase() == "LOCK") {
                             app?.passcodeLockManager?.lock()
                         } else if (payload.uppercase() == "UNLOCK") {
@@ -787,7 +813,6 @@ class MqttManager(
                         }
                     }
                     "kl8wall/$deviceName/intercom_active/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         if (payload.uppercase() == "ON") {
                             val target = settingsRepository.intercomTarget.value
                             app?.intercomManager?.startRecording(target)
@@ -800,7 +825,6 @@ class MqttManager(
                         publishIntercomTargetState(payload)
                     }
                     "kl8wall/$deviceName/charger/cmd" -> {
-                        val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
                         if (payload.uppercase() == "ON") {
                             app?.batterySaverManager?.setChargerStateOverride(true)
                         } else if (payload.uppercase() == "OFF") {
@@ -829,56 +853,201 @@ class MqttManager(
     }
 
     private suspend fun publishDeviceStates(deviceName: String) {
-        withContext(Dispatchers.Main) {
-            val screenOn = deviceController.isScreenOn()
-            val brightness = deviceController.getBrightness()
-            
-            withContext(Dispatchers.IO) {
-                publishScreenState(deviceName, screenOn)
-                publishBrightnessState(deviceName, brightness)
-                
-                publishString("kl8wall/$deviceName/url/state", deviceController.getCurrentUrl(), false)
-                publishString("kl8wall/$deviceName/battery_level/state", deviceController.getBatteryLevel().toString(), false)
-                publishString("kl8wall/$deviceName/battery_temp/state", deviceController.getBatteryTemp().toString(), false)
-                publishString("kl8wall/$deviceName/battery_state/state", deviceController.getBatteryState(), false)
-                publishString("kl8wall/$deviceName/wifi_rssi/state", deviceController.getWifiRssi().toString(), false)
-                publishString("kl8wall/$deviceName/wifi_ssid/state", deviceController.getWifiSsid(), false)
-                publishString("kl8wall/$deviceName/ram_usage/state", deviceController.getRamUsagePercent().toString(), false)
-                publishString("kl8wall/$deviceName/storage_free/state", deviceController.getStorageFreeGb().toString(), false)
-                publishString("kl8wall/$deviceName/uptime/state", deviceController.getUptimeSeconds().toString(), false)
-                publishString("kl8wall/$deviceName/ip_address/state", deviceController.getIpAddress(), false)
-                publishString("kl8wall/$deviceName/app_version/state", deviceController.getAppVersion(), false)
-                
-                publishString("kl8wall/$deviceName/ambient_light/state", deviceController.getAmbientLight().toString(), false)
-                publishString("kl8wall/$deviceName/proximity/state", deviceController.getProximity().toString(), false)
-                publishString("kl8wall/$deviceName/pressure/state", deviceController.getPressure().toString(), false)
-                publishString("kl8wall/$deviceName/ambient_temp/state", deviceController.getAmbientTemp().toString(), false)
-                publishString("kl8wall/$deviceName/humidity/state", deviceController.getHumidity().toString(), false)
+        val controller = deviceController
+        val app = context.applicationContext as? KL8WallApplication
+        val presence = app?.presenceSensorManager
 
-                val app = context as? cloud.kl8techgroup.kl8wall.KL8WallApplication
-                val inForeground = app?.isAppInForeground ?: false
-                publishString("kl8wall/$deviceName/app_foreground/state", if (inForeground) "ON" else "OFF", false)
-                
-                val isStreaming = app?.cameraManager?.isStreamingEnabled ?: false
-                publishString("kl8wall/$deviceName/camera_streaming/state", if (isStreaming) "ON" else "OFF", false)
+        val screenOn: Boolean
+        val brightness: Int
+        val currentUrl: String
+        val batteryLevel: Float
+        val batteryTemp: Float
+        val batteryState: String
+        val wifiRssi: Int
+        val wifiSsid: String
+        val ramUsage: Float
+        val storageFree: Float
+        val uptime: Long
+        val ipAddress: String
+        val appVersion: String
+        val ambientLight: Float
+        val proximity: Float
+        val pressure: Float
+        val ambientTemp: Float
+        val humidity: Float
+        val screenTimeout: Int
+        val ttsVolume: Int
 
-                val bleProxy = app?.bluetoothProxyServer
-                val bleCount = bleProxy?.getNearbyDevicesCount() ?: 0
-                val bleList = bleProxy?.getNearbyDevicesList() ?: ""
-                publishString("kl8wall/$deviceName/bluetooth_devices_count/state", bleCount.toString(), false)
-                publishString("kl8wall/$deviceName/bluetooth_devices_list/state", bleList, false)
-
-                publishString("kl8wall/$deviceName/screen_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
-                publishString("kl8wall/$deviceName/presence_timeout/state", deviceController.getScreenTimeoutSeconds().toString(), false)
-                publishString("kl8wall/$deviceName/tts_volume/state", deviceController.getTtsVolume().toString(), false)
-
-                val intercomActive = app?.intercomManager?.isRecordingActive ?: false
-                publishString("kl8wall/$deviceName/intercom_active/state", if (intercomActive) "ON" else "OFF", false)
-                publishString("kl8wall/$deviceName/intercom_target/state", settingsRepository.intercomTarget.value, false)
-                
-                val chargerOn = app?.batterySaverManager?.chargerState?.value ?: false
-                publishString("kl8wall/$deviceName/charger/state", if (chargerOn) "ON" else "OFF", false)
+        if (controller != null) {
+            val stats = withContext(Dispatchers.Main) {
+                android.os.Bundle().apply {
+                    putBoolean("screenOn", controller.isScreenOn())
+                    putInt("brightness", controller.getBrightness())
+                    putString("currentUrl", controller.getCurrentUrl())
+                    putFloat("batteryLevel", controller.getBatteryLevel())
+                    putFloat("batteryTemp", controller.getBatteryTemp())
+                    putString("batteryState", controller.getBatteryState())
+                    putInt("wifiRssi", controller.getWifiRssi())
+                    putString("wifiSsid", controller.getWifiSsid())
+                    putFloat("ramUsage", controller.getRamUsagePercent())
+                    putFloat("storageFree", controller.getStorageFreeGb())
+                    putLong("uptime", controller.getUptimeSeconds())
+                    putString("ipAddress", controller.getIpAddress())
+                    putString("appVersion", controller.getAppVersion())
+                    putFloat("ambientLight", controller.getAmbientLight())
+                    putFloat("proximity", controller.getProximity())
+                    putFloat("pressure", controller.getPressure())
+                    putFloat("ambientTemp", controller.getAmbientTemp())
+                    putFloat("humidity", controller.getHumidity())
+                    putInt("screenTimeout", controller.getScreenTimeoutSeconds())
+                    putInt("ttsVolume", controller.getTtsVolume())
+                }
             }
+            screenOn = stats.getBoolean("screenOn")
+            brightness = stats.getInt("brightness")
+            currentUrl = stats.getString("currentUrl") ?: ""
+            batteryLevel = stats.getFloat("batteryLevel")
+            batteryTemp = stats.getFloat("batteryTemp")
+            batteryState = stats.getString("batteryState") ?: "unknown"
+            wifiRssi = stats.getInt("wifiRssi")
+            wifiSsid = stats.getString("wifiSsid") ?: "unknown"
+            ramUsage = stats.getFloat("ramUsage")
+            storageFree = stats.getFloat("storageFree")
+            uptime = stats.getLong("uptime")
+            ipAddress = stats.getString("ipAddress") ?: "0.0.0.0"
+            appVersion = stats.getString("appVersion") ?: "1.0.0"
+            ambientLight = stats.getFloat("ambientLight")
+            proximity = stats.getFloat("proximity")
+            pressure = stats.getFloat("pressure")
+            ambientTemp = stats.getFloat("ambientTemp")
+            humidity = stats.getFloat("humidity")
+            screenTimeout = stats.getInt("screenTimeout")
+            ttsVolume = stats.getInt("ttsVolume")
+        } else {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            screenOn = powerManager.isInteractive
+            
+            val rawBright = android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, 128)
+            brightness = (rawBright * 100 + 127) / 255
+            
+            currentUrl = app?.settingsRepository?.startUrl?.value ?: ""
+            
+            val bm = context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+            batteryLevel = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY).toFloat()
+            batteryTemp = 0.0f
+            batteryState = "unknown"
+            
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val connectionInfo = wifiManager.connectionInfo
+            wifiRssi = connectionInfo.rssi
+            @Suppress("DEPRECATION")
+            val ssid = connectionInfo.ssid
+            wifiSsid = if (ssid != null && ssid != android.net.wifi.WifiManager.UNKNOWN_SSID) {
+                ssid.replace("\"", "")
+            } else {
+                "unknown"
+            }
+            
+            val mi = android.app.ActivityManager.MemoryInfo()
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            activityManager.getMemoryInfo(mi)
+            val total = mi.totalMem.toDouble()
+            val avail = mi.availMem.toDouble()
+            ramUsage = if (total > 0) (((total - avail) / total) * 100).toFloat() else 0f
+            
+            storageFree = try {
+                val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+                val bytesAvailable = stat.blockSizeLong * stat.availableBlocksLong
+                (bytesAvailable / (1024f * 1024f * 1024f))
+            } catch (e: Exception) {
+                0f
+            }
+            
+            uptime = android.os.SystemClock.elapsedRealtime() / 1000
+            
+            var ip = "0.0.0.0"
+            try {
+                val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+                if (interfaces != null) {
+                    for (intf in java.util.Collections.list(interfaces)) {
+                        if (!intf.isUp || intf.isLoopback) continue
+                        val addrs = intf.inetAddresses
+                        for (addr in java.util.Collections.list(addrs)) {
+                            if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                                ip = addr.hostAddress ?: "0.0.0.0"
+                                break
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+            ipAddress = ip
+            
+            appVersion = try {
+                val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                pInfo.versionName ?: "1.0.0"
+            } catch (e: Exception) {
+                "1.0.0"
+            }
+            
+            ambientLight = presence?.latestLux ?: 0.0f
+            proximity = presence?.latestProximity ?: 0.0f
+            pressure = presence?.latestPressure ?: 0.0f
+            ambientTemp = presence?.latestAmbientTemp ?: 0.0f
+            humidity = presence?.latestHumidity ?: 0.0f
+            screenTimeout = app?.settingsRepository?.presenceTimeoutSeconds?.value ?: 30
+            
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val currentVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            ttsVolume = if (maxVol > 0) (currentVol * 100 / maxVol) else 0
+        }
+
+        withContext(Dispatchers.IO) {
+            publishScreenState(deviceName, screenOn)
+            publishBrightnessState(deviceName, brightness)
+            
+            publishString("kl8wall/$deviceName/url/state", currentUrl, false)
+            publishString("kl8wall/$deviceName/battery_level/state", batteryLevel.toString(), false)
+            publishString("kl8wall/$deviceName/battery_temp/state", batteryTemp.toString(), false)
+            publishString("kl8wall/$deviceName/battery_state/state", batteryState, false)
+            publishString("kl8wall/$deviceName/wifi_rssi/state", wifiRssi.toString(), false)
+            publishString("kl8wall/$deviceName/wifi_ssid/state", wifiSsid, false)
+            publishString("kl8wall/$deviceName/ram_usage/state", ramUsage.toString(), false)
+            publishString("kl8wall/$deviceName/storage_free/state", storageFree.toString(), false)
+            publishString("kl8wall/$deviceName/uptime/state", uptime.toString(), false)
+            publishString("kl8wall/$deviceName/ip_address/state", ipAddress, false)
+            publishString("kl8wall/$deviceName/app_version/state", appVersion, false)
+            
+            publishString("kl8wall/$deviceName/ambient_light/state", ambientLight.toString(), false)
+            publishString("kl8wall/$deviceName/proximity/state", proximity.toString(), false)
+            publishString("kl8wall/$deviceName/pressure/state", pressure.toString(), false)
+            publishString("kl8wall/$deviceName/ambient_temp/state", ambientTemp.toString(), false)
+            publishString("kl8wall/$deviceName/humidity/state", humidity.toString(), false)
+
+            val inForeground = app?.isAppInForeground ?: false
+            publishString("kl8wall/$deviceName/app_foreground/state", if (inForeground) "ON" else "OFF", false)
+            
+            val isStreaming = app?.cameraManager?.isStreamingEnabled ?: false
+            publishString("kl8wall/$deviceName/camera_streaming/state", if (isStreaming) "ON" else "OFF", false)
+
+            val bleProxy = app?.bluetoothProxyServer
+            val bleCount = bleProxy?.getNearbyDevicesCount() ?: 0
+            val bleList = bleProxy?.getNearbyDevicesList() ?: ""
+            publishString("kl8wall/$deviceName/bluetooth_devices_count/state", bleCount.toString(), false)
+            publishString("kl8wall/$deviceName/bluetooth_devices_list/state", bleList, false)
+
+            publishString("kl8wall/$deviceName/screen_timeout/state", screenTimeout.toString(), false)
+            publishString("kl8wall/$deviceName/presence_timeout/state", screenTimeout.toString(), false)
+            publishString("kl8wall/$deviceName/tts_volume/state", ttsVolume.toString(), false)
+
+            val intercomActive = app?.intercomManager?.isRecordingActive ?: false
+            publishString("kl8wall/$deviceName/intercom_active/state", if (intercomActive) "ON" else "OFF", false)
+            publishString("kl8wall/$deviceName/intercom_target/state", settingsRepository.intercomTarget.value, false)
+            
+            val chargerOn = app?.batterySaverManager?.chargerState?.value ?: false
+            publishString("kl8wall/$deviceName/charger/state", if (chargerOn) "ON" else "OFF", false)
         }
     }
 

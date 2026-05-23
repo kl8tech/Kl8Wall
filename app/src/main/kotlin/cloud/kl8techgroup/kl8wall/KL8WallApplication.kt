@@ -283,7 +283,12 @@ class KL8WallApplication : Application() {
      * Initialize and start all background managers (MQTT, Camera, Presence, BLE Proxy).
      */
     fun startServices(activity: androidx.activity.ComponentActivity, devController: DeviceController) {
-        if (mqttManager != null) return
+        if (mqttManager != null) {
+            mqttManager?.updateDeviceController(devController)
+            presenceSensorManager?.updateDeviceController(devController)
+            cameraManager?.updateLifecycleOwner(activity)
+            return
+        }
 
         val serviceIntent = Intent(this, KL8WallService::class.java)
         androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent)
@@ -450,6 +455,36 @@ class KL8WallApplication : Application() {
         }
         android.os.Process.killProcess(android.os.Process.myPid())
         System.exit(0)
+    }
+
+    fun launchMainActivity(url: String? = null, openSettings: Boolean = false) {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            @Suppress("DEPRECATION")
+            val wakeLock = powerManager.newWakeLock(
+                android.os.PowerManager.FULL_WAKE_LOCK or
+                    android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    android.os.PowerManager.ON_AFTER_RELEASE,
+                "KL8Wall::WakeFromBackground"
+            )
+            wakeLock.acquire(3000L)
+
+            val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (url != null) {
+                    putExtra("start_url", url)
+                }
+                if (openSettings) {
+                    putExtra("open_settings", true)
+                }
+            }
+            if (intent != null) {
+                startActivity(intent)
+                android.util.Log.i("KL8WallApplication", "Woke screen and launched MainActivity")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("KL8WallApplication", "Failed to launch MainActivity from background", e)
+        }
     }
 
     companion object {

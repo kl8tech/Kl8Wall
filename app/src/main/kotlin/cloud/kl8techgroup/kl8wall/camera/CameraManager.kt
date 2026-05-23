@@ -24,7 +24,7 @@ import kotlin.coroutines.resumeWithException
 
 class CameraManager(
     private val context: Context,
-    private val lifecycleOwner: LifecycleOwner,
+    @field:Volatile private var lifecycleOwner: androidx.lifecycle.LifecycleOwner?,
     private val settingsRepository: SettingsRepository,
     private val mqttManager: MqttManager
 ) {
@@ -113,6 +113,22 @@ class CameraManager(
         cameraExecutor.shutdown()
     }
 
+    fun updateLifecycleOwner(newOwner: androidx.lifecycle.LifecycleOwner) {
+        if (this.lifecycleOwner != newOwner) {
+            Log.i(TAG, "Updating CameraManager lifecycleOwner reference")
+            this.lifecycleOwner = newOwner
+            if (isBound) {
+                unbindCamera()
+            }
+        }
+    }
+
+    fun clearLifecycleOwner() {
+        Log.i(TAG, "Clearing CameraManager lifecycleOwner")
+        this.lifecycleOwner = null
+        unbindCamera()
+    }
+
     private fun isLowPowerMode(): Boolean {
         val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
         return app?.presenceSensorManager?.isLowPowerMode?.value ?: false
@@ -176,6 +192,10 @@ class CameraManager(
     }
 
     private suspend fun ensureCameraBound(): ImageCapture? = withContext(Dispatchers.Main) {
+        val owner = lifecycleOwner ?: run {
+            Log.w(TAG, "Cannot bind camera: lifecycleOwner is null (activity backgrounded/destroyed)")
+            return@withContext null
+        }
         if (activeImageCapture != null && isBound) {
             return@withContext activeImageCapture
         }
@@ -200,7 +220,7 @@ class CameraManager(
                 .setTargetResolution(android.util.Size(1024, 768))
                 .build()
             val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-            provider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture)
+            provider.bindToLifecycle(owner, cameraSelector, imageCapture)
             activeImageCapture = imageCapture
             isBound = true
             imageCapture
