@@ -553,6 +553,10 @@ class MainActivity : ComponentActivity() {
                 mainHandler.post { _settingsRequested.value = true }
             }
 
+            override fun closeSettings() {
+                mainHandler.post { _settingsRequested.value = false }
+            }
+
             override fun getBatteryLevel(): Float {
                 val intent = activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
                 val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
@@ -842,13 +846,17 @@ private fun KL8WallScreen(
     var currentUrl by remember { mutableStateOf("") }
 
     LaunchedEffect(settingsTriggered) {
-        if (settingsTriggered && !showPinGate && !showSettings) {
-            if (isPinSet) {
-                showPinGate = true
-            } else {
-                showSettings = true
+        if (settingsTriggered) {
+            if (!showPinGate && !showSettings) {
+                if (isPinSet) {
+                    showPinGate = true
+                } else {
+                    showSettings = true
+                }
             }
-            onSettingsHandled()
+        } else {
+            showSettings = false
+            showPinGate = false
         }
     }
 
@@ -932,7 +940,10 @@ private fun KL8WallScreen(
         }
 
         if (showPinGate) {
-            Dialog(onDismissRequest = { showPinGate = false }) {
+            Dialog(onDismissRequest = {
+                showPinGate = false
+                onSettingsHandled()
+            }) {
                 Surface(
                     shape = MaterialTheme.shapes.extraLarge,
                     color = MaterialTheme.colorScheme.surface,
@@ -954,6 +965,7 @@ private fun KL8WallScreen(
                 viewModel = viewModel,
                 onDismiss = {
                     showSettings = false
+                    onSettingsHandled()
                     val newUrl = viewModel.startUrl.value
                     val finalUrl = buildStartUrl(newUrl) { settingsRepo.getHaToken() }
                     if (finalUrl.isNotBlank() && finalUrl != currentUrl) {

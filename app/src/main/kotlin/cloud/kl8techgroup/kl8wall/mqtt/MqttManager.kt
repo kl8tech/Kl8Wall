@@ -461,6 +461,7 @@ class MqttManager(
         pubBtn("snapshot", "Trigger Photo")
         pubBtn("screenshot", "Trigger Screenshot")
         pubBtn("settings", "Open Settings")
+        pubBtn("close_settings", "Close Settings")
         pubBtn("reboot", "Reboot App", "restart")
 
         // Numbers
@@ -639,6 +640,7 @@ class MqttManager(
             "kl8wall/$deviceName/snapshot/cmd",
             "kl8wall/$deviceName/tts/cmd",
             "kl8wall/$deviceName/settings/cmd",
+            "kl8wall/$deviceName/close_settings/cmd",
             "kl8wall/$deviceName/reboot/cmd",
             "kl8wall/$deviceName/screen_timeout/cmd",
             "kl8wall/$deviceName/presence_timeout/cmd",
@@ -710,11 +712,19 @@ class MqttManager(
                     }
                     "kl8wall/$deviceName/settings/cmd" -> {
                         val controller = deviceController
-                        if (controller != null) {
-                            controller.openSettings()
+                        val upperPayload = payload.trim().uppercase()
+                        if (upperPayload == "OFF" || upperPayload == "CLOSE" || upperPayload == "0") {
+                            controller?.closeSettings()
                         } else {
-                            app?.launchMainActivity(openSettings = true)
+                            if (controller != null) {
+                                controller.openSettings()
+                            } else {
+                                app?.launchMainActivity(openSettings = true)
+                            }
                         }
+                    }
+                    "kl8wall/$deviceName/close_settings/cmd" -> {
+                        deviceController?.closeSettings()
                     }
                     "kl8wall/$deviceName/reboot/cmd" -> {
                         val controller = deviceController

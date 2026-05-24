@@ -67,6 +67,10 @@ class VoiceAssistantManager(
         null
     }
 
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var isMuted = false
+    private var isWakeWordMode = true
+
     private var isStarted = false
     private var isListening = false
     private var timeoutJob: Job? = null
@@ -95,6 +99,56 @@ class VoiceAssistantManager(
         }
     }
 
+    private fun muteSystemSounds() {
+        if (isMuted) return
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Failed to mute STREAM_SYSTEM (DND policy?)", e)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error muting STREAM_SYSTEM", e)
+        }
+        
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Failed to mute STREAM_NOTIFICATION (DND policy?)", e)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error muting STREAM_NOTIFICATION", e)
+        }
+
+        try {
+            if (!audioManager.isMusicActive) {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error muting STREAM_MUSIC", e)
+        }
+        isMuted = true
+    }
+
+    private fun unmuteSystemSounds() {
+        if (!isMuted) return
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error unmuting STREAM_SYSTEM", e)
+        }
+        
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error unmuting STREAM_NOTIFICATION", e)
+        }
+
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error unmuting STREAM_MUSIC", e)
+        }
+        isMuted = false
+    }
+
     private fun startWakeWordListening() {
         if (!isStarted) return
         scope.launch(Dispatchers.Main) {
@@ -103,15 +157,20 @@ class VoiceAssistantManager(
             _userSpokenText.value = ""
             _assistantResponseText.value = ""
             
+            isWakeWordMode = true
+            initRecognizer()
+            
             val intent = createSpeechIntent()
-            setupRecognizer(isWakeWordMode = true)
             
             try {
+                muteSystemSounds()
                 isListening = true
+                speechRecognizer?.cancel() // Clear previous binder state
                 speechRecognizer?.startListening(intent)
                 Log.d(TAG, "SpeechRecognizer started listening for wake word...")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start listening for wake word", e)
+                unmuteSystemSounds()
                 restartWakeWordListeningDelayed()
             }
         }
@@ -127,44 +186,54 @@ class VoiceAssistantManager(
             // Wake screen so the overlay is visible
             wakeScreen()
 
-            // Play clean double beep tone acknowledgment
+            // Play clean double beep tone acknowledgment (unmuted so user hears it)
+            unmuteSystemSounds()
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 120)
 
-            delay(150) // Short delay to let the beep finish playing before opening mic
+            delay(200) // Short delay to let the beep finish playing before opening mic
+
+            isWakeWordMode = false
+            initRecognizer()
 
             val intent = createSpeechIntent()
-            setupRecognizer(isWakeWordMode = false)
 
             try {
+                muteSystemSounds()
                 isListening = true
+                speechRecognizer?.cancel() // Clear previous binder state
                 speechRecognizer?.startListening(intent)
                 Log.d(TAG, "SpeechRecognizer started listening for command...")
 
                 // Schedule timeout in case user doesn't say anything
                 scheduleTimeout(COMMAND_TIMEOUT_MS) {
                     Log.i(TAG, "Command listening timed out.")
+                    unmuteSystemSounds()
                     toneGenerator?.startTone(ToneGenerator.TONE_PROP_NACK, 150)
                     startWakeWordListening()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start listening for command", e)
+                unmuteSystemSounds()
                 startWakeWordListening()
             }
         }
     }
 
-    private fun setupRecognizer(isWakeWordMode: Boolean) {
-        destroyRecognizer()
+    private fun initRecognizer() {
+        if (speechRecognizer != null) return
         
+        Log.i(TAG, "Initializing persistent SpeechRecognizer...")
         val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                Log.d(TAG, "Recognizer ready for speech")
+                Log.d(TAG, "Recognizer ready for speech (isWakeWordMode = $isWakeWordMode)")
+                unmuteSystemSounds() // Unmute system sounds after system start-listening beep passes
             }
 
             override fun onBeginningOfSpeech() {
                 Log.d(TAG, "User started speaking")
                 cancelTimeout()
+                unmuteSystemSounds()
             }
 
             override fun onRmsChanged(rmsdB: Float) {}
@@ -173,46 +242,44 @@ class VoiceAssistantManager(
 
             override fun onEndOfSpeech() {
                 Log.d(TAG, "Speech ended")
+                unmuteSystemSounds()
             }
 
             override fun onError(error: Int) {
                 val errorMsg = getErrorMessage(error)
                 Log.w(TAG, "Speech recognizer error: $errorMsg (code $error)")
                 isListening = false
+                unmuteSystemSounds()
                 
                 if (isWakeWordMode) {
-                    // In wake-word mode, simply restart listening after a brief delay on error
                     restartWakeWordListeningDelayed()
                 } else {
-                    // In command mode, go back to wake-word listening on error
                     startWakeWordListening()
                 }
             }
 
             override fun onResults(results: Bundle?) {
                 isListening = false
+                unmuteSystemSounds()
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val text = matches?.firstOrNull()?.trim() ?: ""
-                Log.i(TAG, "Speech recognizer results: $text")
+                Log.i(TAG, "Speech recognizer final results: $text")
 
                 if (isWakeWordMode) {
-                    handleWakeWordResult(text)
+                    handleWakeWordResult(text, isFinal = true)
                 } else {
                     handleCommandResult(text)
                 }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                if (isWakeWordMode) {
-                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.firstOrNull()?.trim() ?: ""
-                    if (text.isNotEmpty()) {
-                        handleWakeWordResult(text)
-                    }
-                } else {
-                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.firstOrNull()?.trim() ?: ""
-                    if (text.isNotEmpty()) {
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val text = matches?.firstOrNull()?.trim() ?: ""
+                if (text.isNotEmpty()) {
+                    if (isWakeWordMode) {
+                        Log.d(TAG, "Speech recognizer partial results: $text")
+                        handleWakeWordResult(text, isFinal = false)
+                    } else {
                         _userSpokenText.value = text
                     }
                 }
@@ -220,11 +287,11 @@ class VoiceAssistantManager(
 
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
-        
         speechRecognizer = recognizer
     }
 
     private fun destroyRecognizer() {
+        unmuteSystemSounds()
         speechRecognizer?.let {
             try {
                 it.cancel()
@@ -237,14 +304,18 @@ class VoiceAssistantManager(
         isListening = false
     }
 
-    private fun handleWakeWordResult(text: String) {
+    private fun handleWakeWordResult(text: String, isFinal: Boolean) {
         val configuredWakeWord = settingsRepository.voiceWakeWord.value.lowercase(Locale.getDefault()).trim()
         val detected = text.lowercase(Locale.getDefault())
 
         if (configuredWakeWord.isNotEmpty() && detected.contains(configuredWakeWord)) {
-            Log.i(TAG, "Wake word matched: '$configuredWakeWord' detected in '$detected'")
-            destroyRecognizer()
+            Log.i(TAG, "Wake word matched: '$configuredWakeWord' detected in '$detected' (isFinal = $isFinal)")
+            speechRecognizer?.cancel()
+            isListening = false
             startCommandListening()
+        } else if (isFinal) {
+            Log.i(TAG, "Final wake word check finished (no match), restarting loop...")
+            restartWakeWordListeningDelayed()
         }
     }
 

@@ -81,6 +81,8 @@ class KL8WallHttpServer(
         "POST /api/lock" -> handleLock()
         "POST /api/unlock" -> handleUnlock()
         "POST /api/reboot" -> handleReboot()
+        "POST /api/settings/open" -> handleSettingsOpen()
+        "POST /api/settings/close" -> handleSettingsClose()
         "POST /api/peer/relay" -> handlePeerRelay(session)
         "POST /api/peer/command" -> handlePeerCommand(session)
         "GET /api/peer/public_config" -> handleGetPublicConfig()
@@ -223,6 +225,24 @@ class KL8WallHttpServer(
             controller.reload()
         } else {
             KL8WallApplication.instance.launchMainActivity()
+        }
+        return successResponse()
+    }
+
+    private fun handleSettingsOpen(): Response {
+        val controller = deviceControllerProvider()
+        if (controller != null) {
+            controller.openSettings()
+        } else {
+            KL8WallApplication.instance.launchMainActivity(openSettings = true)
+        }
+        return successResponse()
+    }
+
+    private fun handleSettingsClose(): Response {
+        val controller = deviceControllerProvider()
+        if (controller != null) {
+            controller.closeSettings()
         }
         return successResponse()
     }

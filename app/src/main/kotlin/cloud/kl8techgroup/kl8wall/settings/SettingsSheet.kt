@@ -2,6 +2,7 @@ package cloud.kl8techgroup.kl8wall.settings
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -500,10 +501,79 @@ private fun BatterySaverCard(viewModel: SettingsViewModel) {
 }
 
 @Composable
+private fun CopyableYamlCard(title: String, yamlText: String) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(12.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            IconButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(yamlText))
+                    Toast.makeText(context, "YAML copied to clipboard", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Copy YAML",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+        
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    color = Color(0xFF1E1E2E),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .padding(8.dp)
+                .horizontalScroll(rememberScrollState())
+        ) {
+            Text(
+                text = yamlText,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                ),
+                color = Color(0xFFCDD6F4)
+            )
+        }
+    }
+}
+
+@Composable
 private fun IntercomCard(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val intercomTarget by viewModel.intercomTarget.collectAsState()
     var editTarget by remember(intercomTarget) { mutableStateOf(intercomTarget) }
+    val deviceName by viewModel.deviceName.collectAsState()
 
     val app = context.applicationContext as? KL8WallApplication
     val intercomManager = app?.intercomManager
@@ -626,6 +696,73 @@ private fun IntercomCard(viewModel: SettingsViewModel) {
                 } else {
                     Text("Start Loopback Test")
                 }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Home Assistant Lovelace Cards",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Use the copyable YAML configurations below to add intercom buttons to your Home Assistant dashboard.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                val toggleActiveYaml = """
+                    type: button
+                    name: Broadcast from $deviceName
+                    icon: mdi:microphone
+                    tap_action:
+                      action: toggle
+                    entity: switch.kl8wall_${deviceName}_intercom_active
+                """.trimIndent()
+
+                val broadcastToThisYaml = """
+                    type: button
+                    name: Talk to $deviceName
+                    icon: mdi:microphone
+                    tap_action:
+                      action: call-service
+                      service: mqtt.publish
+                      data:
+                        topic: kl8wall/<source_device_name>/intercom/cmd
+                        payload: start:$deviceName
+                """.trimIndent()
+
+                val stopIntercomYaml = """
+                    type: button
+                    name: Stop Intercom
+                    icon: mdi:microphone-off
+                    tap_action:
+                      action: call-service
+                      service: mqtt.publish
+                      data:
+                        topic: kl8wall/<source_device_name>/intercom/cmd
+                        payload: stop
+                """.trimIndent()
+
+                CopyableYamlCard(
+                    title = "Toggle $deviceName Intercom",
+                    yamlText = toggleActiveYaml
+                )
+
+                CopyableYamlCard(
+                    title = "Broadcast to $deviceName",
+                    yamlText = broadcastToThisYaml
+                )
+
+                CopyableYamlCard(
+                    title = "Stop Intercom Stream",
+                    yamlText = stopIntercomYaml
+                )
             }
         }
     }

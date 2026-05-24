@@ -1,6 +1,6 @@
 {
-  "version": "2.0.47",
-  "versionCode": 49,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.47/kl8wall-v49.apk",
-  "changelog": "Fix P2P peer discovery by consolidating all local mDNS browser and advertiser instances into a single shared JmDNS thread-safe manager, avoiding port 5353 binding conflicts."
+  "version": "2.0.53",
+  "versionCode": 55,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.53/kl8wall-v55.apk",
+  "changelog": "Implement persistent voice speech recognizer to fix Nougat loop crashes, add system volume sound muting to silence start/stop voice chimes, add remote close settings APIs (MQTT / HTTP), and add Intercom Lovelace YAML configuration helper card."
 }

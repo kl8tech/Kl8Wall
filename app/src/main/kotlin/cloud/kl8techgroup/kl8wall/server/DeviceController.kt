@@ -49,6 +49,9 @@ interface DeviceController {
     /** Show the settings sheet. */
     fun openSettings()
 
+    /** Close the settings sheet if open. */
+    fun closeSettings()
+
     // --- New getters for diagnostics and settings controls ---
 
     /** Get current battery level as a percentage (0 to 100). */
