@@ -556,6 +556,8 @@ class MqttManager(
         val updateEntityConfig = JSONObject().apply {
             put("name", "App Update")
             put("unique_id", "kl8wall_${deviceName}_update")
+            put("device_class", "firmware")
+            put("title", "KL8Wall")
             put("state_topic", "kl8wall/$deviceName/update/state")
             put("command_topic", "kl8wall/$deviceName/update/cmd")
             put("payload_install", "install")
