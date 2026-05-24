@@ -196,7 +196,7 @@ class MqttManager(
                 Pair(interval, lowPower)
             }.collectLatest { (interval, lowPower) ->
                 val config = currentConfig ?: return@collectLatest
-                if (isConnected()) {
+                if (config.enabled && config.broker.isNotBlank()) {
                     startPeriodicStatusPublisher(config.deviceName)
                 }
             }
@@ -224,6 +224,10 @@ class MqttManager(
             _lastError.value = if (!config.enabled) "MQTT is disabled" else "Broker address is blank"
             return
         }
+        publishDiscovery(config.deviceName)
+        startPeriodicStatusPublisher(config.deviceName)
+        startOtaStateCollectors(config.deviceName)
+        startCastAndLockCollectors(config.deviceName)
         connectAsync(config)
     }
 
@@ -1246,6 +1250,10 @@ class MqttManager(
         if (!config.enabled || config.broker.isBlank()) return
         Log.i(TAG, "Forcing MQTT reconnect...")
         disconnectSync()
+        publishDiscovery(config.deviceName)
+        startPeriodicStatusPublisher(config.deviceName)
+        startOtaStateCollectors(config.deviceName)
+        startCastAndLockCollectors(config.deviceName)
         connectAsync(config)
     }
 

@@ -86,6 +86,13 @@ class PeerManager(
         startRelayTracking()
 
         scope.launch {
+            settingsRepository.manualPeers.collect {
+                Log.d(TAG, "manualPeers settings changed. Triggering immediate manual peer poll.")
+                pollManualPeers()
+            }
+        }
+
+        scope.launch {
             val app = context.applicationContext as? KL8WallApplication
             while (app?.mqttManager == null && isActive) {
                 delay(200)
@@ -338,6 +345,12 @@ class PeerManager(
                     )
                     peers[name] = peer
                     Log.d(TAG, "Manual peer updated: $name at $ip:$port (MQTT connected: $mqttConn)")
+                    
+                    // Re-evaluate dynamic subscriptions and proxies based on updated status
+                    scope.launch {
+                        evaluateDynamicSubscriptions()
+                        evaluateEsphomeProxies()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -664,7 +677,7 @@ class PeerManager(
         val txtRecords = mapOf(
             "version" to "2026.1.0",
             "device" to "KL8Wall Proxy",
-            "mac" to peerName.hashCode().toString()
+            "mac" to getPseudoMacAddress(peerName)
         )
         val serviceInfo = ServiceInfo.create(
             "_esphomelib._tcp.local.",
@@ -689,6 +702,19 @@ class PeerManager(
             serviceInfo = serviceInfo,
             job = proxyJob
         )
+    }
+
+    private fun getPseudoMacAddress(peerName: String): String {
+        val hash = peerName.hashCode().toLong()
+        val macBytes = byteArrayOf(
+            0x02,
+            ((hash shr 24) and 0xFF.toLong()).toByte(),
+            ((hash shr 16) and 0xFF.toLong()).toByte(),
+            ((hash shr 8) and 0xFF.toLong()).toByte(),
+            (hash and 0xFF.toLong()).toByte(),
+            0x01
+        )
+        return macBytes.joinToString("") { String.format("%02X", it.toInt() and 0xFF) }
     }
 
     private fun stopEsphomeProxy(peerName: String) {
