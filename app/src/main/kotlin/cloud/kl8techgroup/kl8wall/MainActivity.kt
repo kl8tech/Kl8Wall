@@ -98,6 +98,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 
 /**
  * Single activity hosting the kiosk WebView and Compose settings overlay.
@@ -839,6 +845,10 @@ private fun KL8WallScreen(
     val userSpokenText by (voiceAssistantManager?.userSpokenText?.collectAsState() ?: remember { mutableStateOf("") })
     val assistantResponseText by (voiceAssistantManager?.assistantResponseText?.collectAsState() ?: remember { mutableStateOf("") })
 
+    val intercomManager = app.intercomManager
+    val intercomCallState by (intercomManager?.callState?.collectAsState() ?: remember { mutableStateOf(cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.IDLE) })
+    val intercomPeerDevice by (intercomManager?.peerDevice?.collectAsState() ?: remember { mutableStateOf("") })
+
     var showPinGate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var setupComplete by remember { mutableStateOf(!isFirstRun) }
@@ -933,6 +943,17 @@ private fun KL8WallScreen(
                         state = voiceState,
                         userText = userSpokenText,
                         assistantText = assistantResponseText,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                if (intercomCallState != cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.IDLE) {
+                    IntercomCallOverlay(
+                        state = intercomCallState,
+                        peerDevice = intercomPeerDevice,
+                        onAccept = { intercomManager?.acceptCall() },
+                        onDecline = { intercomManager?.declineCall() },
+                        onHangUp = { intercomManager?.hangUp() },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -1273,6 +1294,257 @@ fun VoiceAssistantOverlay(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun IntercomCallOverlay(
+    state: cloud.kl8techgroup.kl8wall.intercom.IntercomCallState,
+    peerDevice: String,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onHangUp: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f)),
+        contentAlignment = Alignment.Center
+    ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "avatarPulsing")
+        val pulseScale by infiniteTransition.animateFloat(
+            initialValue = 1.0f,
+            targetValue = 1.4f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "pulseScale"
+        )
+        val pulseAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.6f,
+            targetValue = 0.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "pulseAlpha"
+        )
+
+        Card(
+            modifier = Modifier
+                .padding(32.dp)
+                .fillMaxWidth(0.85f)
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.25f),
+                            Color.White.copy(alpha = 0.05f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(28.dp)
+                ),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF1E1E2E).copy(alpha = 0.9f)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Call Status Label
+                val statusText = when (state) {
+                    cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.OUTGOING_RINGING -> "Calling..."
+                    cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.INCOMING_RINGING -> "Incoming Call..."
+                    cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.ACTIVE_CALL -> "Connected"
+                    else -> ""
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+
+                // Avatar Container
+                Box(
+                    modifier = Modifier.size(140.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (state == cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.OUTGOING_RINGING ||
+                        state == cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.INCOMING_RINGING
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(100.dp * pulseScale)
+                                .background(
+                                    color = Color(0xFFCBA6F7).copy(alpha = pulseAlpha),
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+
+                    val firstLetter = if (peerDevice.isNotEmpty()) {
+                        peerDevice.first().uppercaseChar().toString()
+                    } else {
+                        "?"
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(100.dp)
+                            .background(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(Color(0xFFF5C2E7), Color(0xFFCBA6F7))
+                                ),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = firstLetter,
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                // Peer Name
+                Text(
+                    text = peerDevice,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                // Active Call details (timer & visualizer)
+                if (state == cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.ACTIVE_CALL) {
+                    var seconds by remember { mutableStateOf(0) }
+                    LaunchedEffect(state) {
+                        while (true) {
+                            delay(1000)
+                            seconds++
+                        }
+                    }
+                    val minutes = seconds / 60
+                    val secs = seconds % 60
+                    val timeStr = String.format(Locale.US, "%02d:%02d", minutes, secs)
+
+                    Text(
+                        text = timeStr,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    WaveformVisualizer()
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Call Controls
+                if (state == cloud.kl8techgroup.kl8wall.intercom.IntercomCallState.INCOMING_RINGING) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Accept Button (Green)
+                        IconButton(
+                            onClick = onAccept,
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = Color(0xFFA6E3A1),
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Call,
+                                contentDescription = "Accept Call",
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+
+                        // Decline Button (Red)
+                        IconButton(
+                            onClick = onDecline,
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = Color(0xFFF38BA8),
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.CallEnd,
+                                contentDescription = "Decline Call",
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                } else {
+                    // Outgoing Ringing or Active Call: Single End Call Button
+                    IconButton(
+                        onClick = onHangUp,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color(0xFFF38BA8),
+                            contentColor = Color.White
+                        ),
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CallEnd,
+                            contentDescription = "End Call",
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WaveformVisualizer() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.height(50.dp)
+    ) {
+        val transition = rememberInfiniteTransition(label = "waveform")
+        val heights = List(5) { index ->
+            transition.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1.0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(
+                        durationMillis = 400 + index * 100,
+                        easing = LinearEasing
+                    ),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "bar_$index"
+            )
+        }
+        heights.forEach { heightVal ->
+            Box(
+                modifier = Modifier
+                    .size(width = 6.dp, height = (heightVal.value * 40).dp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color(0xFF89DCEB), Color(0xFF89B4FA))
+                        ),
+                        shape = RoundedCornerShape(3.dp)
+                    )
+            )
         }
     }
 }

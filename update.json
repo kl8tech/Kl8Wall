@@ -1,6 +1,6 @@
 {
-  "version": "2.0.53",
-  "versionCode": 55,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.53/kl8wall-v55.apk",
-  "changelog": "Implement persistent voice speech recognizer to fix Nougat loop crashes, add system volume sound muting to silence start/stop voice chimes, add remote close settings APIs (MQTT / HTTP), and add Intercom Lovelace YAML configuration helper card."
+  "version": "2.0.54",
+  "versionCode": 56,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.54/kl8wall-v56.apk",
+  "changelog": "Refactor Intercom to support bidirectional 1-to-1 calling with ringtones and echo cancellation, add active mDNS discovery refresh, and resolve transient wifi dropout peer loss."
 }

@@ -661,7 +661,11 @@ class MqttManager(
             "kl8wall/$deviceName/lock/cmd",
             "kl8wall/$deviceName/intercom_active/cmd",
             "kl8wall/$deviceName/intercom_target/cmd",
-            "kl8wall/$deviceName/charger/cmd"
+            "kl8wall/$deviceName/charger/cmd",
+            "kl8wall/$deviceName/call/invite",
+            "kl8wall/$deviceName/call/accept",
+            "kl8wall/$deviceName/call/decline",
+            "kl8wall/$deviceName/call/hangup"
         )
         val qos = IntArray(topics.size) { 1 }
 
@@ -848,6 +852,34 @@ class MqttManager(
                             app?.batterySaverManager?.setChargerStateOverride(true)
                         } else if (payload.uppercase() == "OFF") {
                             app?.batterySaverManager?.setChargerStateOverride(false)
+                        }
+                    }
+                    "kl8wall/$deviceName/call/invite" -> {
+                        val json = try { JSONObject(payload) } catch (_: Exception) { null }
+                        val caller = json?.optString("caller") ?: ""
+                        if (caller.isNotEmpty()) {
+                            app?.intercomManager?.receiveInvite(caller)
+                        }
+                    }
+                    "kl8wall/$deviceName/call/accept" -> {
+                        val json = try { JSONObject(payload) } catch (_: Exception) { null }
+                        val responder = json?.optString("responder") ?: ""
+                        if (responder.isNotEmpty()) {
+                            app?.intercomManager?.receiveAccept(responder)
+                        }
+                    }
+                    "kl8wall/$deviceName/call/decline" -> {
+                        val json = try { JSONObject(payload) } catch (_: Exception) { null }
+                        val responder = json?.optString("responder") ?: ""
+                        if (responder.isNotEmpty()) {
+                            app?.intercomManager?.receiveDecline(responder)
+                        }
+                    }
+                    "kl8wall/$deviceName/call/hangup" -> {
+                        val json = try { JSONObject(payload) } catch (_: Exception) { null }
+                        val sender = json?.optString("sender") ?: ""
+                        if (sender.isNotEmpty()) {
+                            app?.intercomManager?.receiveHangup(sender)
                         }
                     }
                 }

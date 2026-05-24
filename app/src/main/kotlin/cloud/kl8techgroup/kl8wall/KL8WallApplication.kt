@@ -513,13 +513,18 @@ class KL8WallApplication : Application() {
     }
 
     private var sharedJmdns: javax.jmdns.JmDNS? = null
+    private var sharedJmdnsIp: String? = null
     private var sharedMulticastLock: android.net.wifi.WifiManager.MulticastLock? = null
 
     @Synchronized
     fun getOrCreateJmdns(ipAddress: String): javax.jmdns.JmDNS? {
         val current = sharedJmdns
-        if (current != null) {
+        if (current != null && sharedJmdnsIp == ipAddress) {
             return current
+        }
+        if (current != null) {
+            android.util.Log.i("KL8WallApplication", "JmDNS IP changed from $sharedJmdnsIp to $ipAddress. Recreating.")
+            closeSharedJmdns()
         }
 
         try {
@@ -532,6 +537,7 @@ class KL8WallApplication : Application() {
             val address = java.net.InetAddress.getByName(ipAddress)
             val j = javax.jmdns.JmDNS.create(address, "kl8wall-shared")
             sharedJmdns = j
+            sharedJmdnsIp = ipAddress
             android.util.Log.i("KL8WallApplication", "Created shared JmDNS instance on $ipAddress")
             return j
         } catch (e: Exception) {
@@ -547,6 +553,7 @@ class KL8WallApplication : Application() {
             sharedJmdns?.close()
         } catch (_: Exception) {}
         sharedJmdns = null
+        sharedJmdnsIp = null
         try {
             sharedMulticastLock?.let { if (it.isHeld) it.release() }
         } catch (_: Exception) {}

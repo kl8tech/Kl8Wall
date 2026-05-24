@@ -31,7 +31,7 @@ class PeerManager(
         private const val TAG = "PeerManager"
         private const val SERVICE_TYPE = "_kl8wall._tcp.local."
         private const val PEER_STATUS_INTERVAL_MS = 30000L
-        private const val PEER_EXPIRY_MS = 60000L
+        private const val PEER_EXPIRY_MS = 1800000L
     }
 
     data class PeerInfo(
@@ -238,6 +238,12 @@ class PeerManager(
         pollingJob = scope.launch {
             while (isActive) {
                 delay(PEER_STATUS_INTERVAL_MS)
+                try {
+                    jmdns?.list(SERVICE_TYPE)
+                    jmdns?.list("_home-assistant._tcp.local.")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error performing active mDNS poll", e)
+                }
                 pruneAndPollPeers()
                 pollManualPeers()
             }
@@ -392,6 +398,11 @@ class PeerManager(
             val mqtt = KL8WallApplication.instance.mqttManager
             mqtt?.unsubscribeExternally(topic)
         }
+        val callTopic = "kl8wall/$peerName/call/+"
+        if (activePeerSubscriptions.remove(callTopic)) {
+            val mqtt = KL8WallApplication.instance.mqttManager
+            mqtt?.unsubscribeExternally(callTopic)
+        }
         stopEsphomeProxy(peerName)
     }
 
@@ -409,17 +420,26 @@ class PeerManager(
         // For each discovered peer
         peers.forEach { (name, peer) ->
             val cmdTopic = "kl8wall/$name/+/cmd"
+            val callTopic = "kl8wall/$name/call/+"
             if (!peer.mqttConnected) {
                 // If the peer's MQTT connection is down, we subscribe to their commands on their behalf
                 if (activePeerSubscriptions.add(cmdTopic)) {
                     Log.i(TAG, "Subscribing to command relay topic on behalf of offline peer $name: $cmdTopic")
                     mqtt.subscribeExternally(cmdTopic)
                 }
+                if (activePeerSubscriptions.add(callTopic)) {
+                    Log.i(TAG, "Subscribing to call relay topic on behalf of offline peer $name: $callTopic")
+                    mqtt.subscribeExternally(callTopic)
+                }
             } else {
                 // If the peer is back online, unsubscribe
                 if (activePeerSubscriptions.remove(cmdTopic)) {
                     Log.i(TAG, "Unsubscribing from relayed command topic since peer $name is back online: $cmdTopic")
                     mqtt.unsubscribeExternally(cmdTopic)
+                }
+                if (activePeerSubscriptions.remove(callTopic)) {
+                    Log.i(TAG, "Unsubscribing from relayed call topic since peer $name is back online: $callTopic")
+                    mqtt.unsubscribeExternally(callTopic)
                 }
             }
         }
