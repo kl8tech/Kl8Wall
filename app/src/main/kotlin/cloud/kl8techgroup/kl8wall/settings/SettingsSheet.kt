@@ -1229,17 +1229,35 @@ private fun MeshNetworkCard(viewModel: SettingsViewModel) {
                             Text("Last seen: ${ago}s ago", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            val color = if (peer.mqttConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
-                            androidx.compose.foundation.Canvas(modifier = Modifier.size(8.dp)) {
-                                drawCircle(color = color)
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Mesh Status
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                androidx.compose.foundation.Canvas(modifier = Modifier.size(8.dp)) {
+                                    drawCircle(color = Color(0xFF4CAF50))
+                                }
+                                Text(
+                                    text = "Mesh Online",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF4CAF50),
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
-                            Text(
-                                text = if (peer.mqttConnected) "MQTT Online" else "MQTT Offline",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = color,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            // MQTT Status
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                val color = if (peer.mqttConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
+                                androidx.compose.foundation.Canvas(modifier = Modifier.size(8.dp)) {
+                                    drawCircle(color = color)
+                                }
+                                Text(
+                                    text = if (peer.mqttConnected) "MQTT Online" else "MQTT Offline",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = color,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }

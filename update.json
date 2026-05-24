@@ -1,6 +1,6 @@
 {
-  "version": "2.0.54",
-  "versionCode": 56,
-  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.54/kl8wall-v56.apk",
-  "changelog": "Refactor Intercom to support bidirectional 1-to-1 calling with ringtones and echo cancellation, add active mDNS discovery refresh, and resolve transient wifi dropout peer loss."
+  "version": "2.0.55",
+  "versionCode": 57,
+  "url": "https://github.com/kl8tech/Kl8Wall/releases/download/v2.0.55/kl8wall-v57.apk",
+  "changelog": "Fix mesh network status displaying online panels as offline due to blank password verification failures, and refine the discover panel status card."
 }

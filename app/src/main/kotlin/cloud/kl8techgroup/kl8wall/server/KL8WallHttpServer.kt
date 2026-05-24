@@ -333,10 +333,14 @@ class KL8WallHttpServer(
 
         val uri = session.uri ?: ""
         if (uri == "/api/status" || uri == "/api/peer/relay" || uri == "/api/peer/command" || uri == "/api/peer/public_config" || uri == "/api/peer/secure_config") {
-            val meshAuthHeader = session.headers["x-kl8wall-mesh-auth"] ?: return false
             val peerManager = KL8WallApplication.instance.peerManager ?: return false
             val expectedAuth = peerManager.getMeshAuthToken()
-            return expectedAuth.isNotEmpty() && meshAuthHeader == expectedAuth
+            val meshAuthHeader = session.headers["x-kl8wall-mesh-auth"]
+            return if (expectedAuth.isEmpty()) {
+                meshAuthHeader.isNullOrEmpty()
+            } else {
+                !meshAuthHeader.isNullOrEmpty() && meshAuthHeader == expectedAuth
+            }
         }
 
         return false
