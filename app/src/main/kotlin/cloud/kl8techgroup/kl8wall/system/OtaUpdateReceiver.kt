@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.os.Build
 import android.util.Log
 import cloud.kl8techgroup.kl8wall.KL8WallApplication
 
@@ -31,9 +32,36 @@ class OtaUpdateReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> {
                 Log.i(TAG, "OTA installation completed successfully! System will restart the app.")
             }
+            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                Log.i(TAG, "OTA installation requires user confirmation. Launching confirmation UI.")
+                val confirmationIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_INTENT) as? Intent
+                }
+                if (confirmationIntent != null) {
+                    otaManager.startConfirmationPrompt(confirmationIntent)
+                } else {
+                    Log.e(TAG, "Confirmation intent is null, cannot prompt user.")
+                    otaManager.resetUpdatingState("Installation failed: No confirmation intent found")
+                }
+            }
             else -> {
                 Log.e(TAG, "OTA installation failed with status $status ($message)")
-                otaManager.resetUpdatingState("Installation failed: $message")
+                val apkPath = intent.getStringExtra("ota_apk_path")
+                if (!apkPath.isNullOrBlank()) {
+                    Log.i(TAG, "Falling back to interactive installation for APK: $apkPath")
+                    val apkFile = java.io.File(apkPath)
+                    if (apkFile.exists()) {
+                        otaManager.installWithPrompt(apkFile)
+                    } else {
+                        Log.e(TAG, "Fallback failed: APK file does not exist at $apkPath")
+                        otaManager.resetUpdatingState("Installation failed: $message (APK file missing)")
+                    }
+                } else {
+                    otaManager.resetUpdatingState("Installation failed: $message")
+                }
             }
         }
     }

@@ -50,6 +50,10 @@ class OtaManager(private val context: Context) {
     private val _isInstallingInteractive = MutableStateFlow(false)
     val isInstallingInteractive: StateFlow<Boolean> = _isInstallingInteractive.asStateFlow()
 
+    fun setInstallingInteractive(value: Boolean) {
+        _isInstallingInteractive.value = value
+    }
+
     fun resetInstallingInteractive() {
         _isInstallingInteractive.value = false
     }
@@ -255,7 +259,7 @@ class OtaManager(private val context: Context) {
         }
     }
 
-    private fun installWithPrompt(apkFile: File) {
+    fun installWithPrompt(apkFile: File) {
         try {
             _isInstallingInteractive.value = true
             
@@ -286,6 +290,37 @@ class OtaManager(private val context: Context) {
         }
     }
 
+    fun startConfirmationPrompt(confirmationIntent: Intent) {
+        try {
+            _isInstallingInteractive.value = true
+            
+            // Wake the screen using a temporary WakeLock
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            if (powerManager != null) {
+                @Suppress("DEPRECATION")
+                val wakeLock = powerManager.newWakeLock(
+                    android.os.PowerManager.FULL_WAKE_LOCK or
+                            android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                            android.os.PowerManager.ON_AFTER_RELEASE,
+                    "KL8Wall::OtaWakeLock"
+                )
+                wakeLock.acquire(3000L)
+            }
+
+            // Launch MainActivity with confirmation intent
+            val mainIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                putExtra("wake_for_ota", true)
+                putExtra("ota_confirmation_intent", confirmationIntent)
+            }
+            context.startActivity(mainIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch interactive confirmation flow", e)
+            _updateError.value = "Failed to launch installer UI"
+            _isInstallingInteractive.value = false
+        }
+    }
+
     private fun installSilently(apkFile: File) {
         val packageInstaller = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
@@ -307,6 +342,8 @@ class OtaManager(private val context: Context) {
 
             val intent = Intent(context, OtaUpdateReceiver::class.java).apply {
                 action = OtaUpdateReceiver.ACTION_OTA_STATUS
+                putExtra("ota_apk_path", apkFile.absolutePath)
+                setPackage(context.packageName)
             }
             val pendingIntent = PendingIntent.getBroadcast(
                 context,

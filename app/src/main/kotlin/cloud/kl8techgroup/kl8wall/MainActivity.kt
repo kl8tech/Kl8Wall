@@ -250,9 +250,15 @@ class MainActivity : ComponentActivity() {
         val openSettings = intent.getBooleanExtra("open_settings", false)
         val wakeForOta = intent.getBooleanExtra("wake_for_ota", false)
         val otaApkPath = intent.getStringExtra("ota_apk_path")
+        val otaConfirmationIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra("ota_confirmation_intent", Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra("ota_confirmation_intent") as? Intent
+        }
 
-        if (wakeForOta && !otaApkPath.isNullOrBlank()) {
-            handleOtaWake(otaApkPath)
+        if (wakeForOta && (!otaApkPath.isNullOrBlank() || otaConfirmationIntent != null)) {
+            handleOtaWake(otaApkPath, otaConfirmationIntent)
         }
 
         if (clearCache) {
@@ -299,8 +305,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleOtaWake(apkPath: String) {
-        Log.i("MainActivity", "Handling OTA Wake up. APK Path: $apkPath")
+    private fun handleOtaWake(apkPath: String?, confirmationIntent: Intent?) {
+        Log.i("MainActivity", "Handling OTA Wake up. APK Path: $apkPath, Confirmation Intent: $confirmationIntent")
         
         // Wake screen
         screenController.screenOn(this)
@@ -331,16 +337,21 @@ class MainActivity : ComponentActivity() {
         // Wait 1.5 seconds, then trigger the package installer
         mainHandler.postDelayed({
             try {
-                val apkFile = java.io.File(apkPath)
-                val authority = "${packageName}.provider"
-                val apkUri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, authority, apkFile)
-                val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(apkUri, "application/vnd.android.package-archive")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (confirmationIntent != null) {
+                    startActivity(confirmationIntent)
+                    Log.i("MainActivity", "Launched system confirmation intent for OTA update")
+                } else if (!apkPath.isNullOrBlank()) {
+                    val apkFile = java.io.File(apkPath)
+                    val authority = "${packageName}.provider"
+                    val apkUri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, authority, apkFile)
+                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(apkUri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(installIntent)
+                    Log.i("MainActivity", "Launched package installer for OTA update")
                 }
-                startActivity(installIntent)
-                Log.i("MainActivity", "Launched package installer for OTA update")
             } catch (e: Exception) {
                 Log.e("MainActivity", "Failed to launch package installer from wake handler", e)
             }

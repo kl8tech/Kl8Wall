@@ -16,8 +16,8 @@ android {
         applicationId = "cloud.kl8techgroup.kl8wall"
         minSdk = 24
         targetSdk = 35
-        versionCode = 49
-        versionName = "2.0.47"
+        versionCode = 50
+        versionName = "2.0.48"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
