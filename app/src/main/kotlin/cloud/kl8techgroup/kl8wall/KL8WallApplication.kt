@@ -91,6 +91,9 @@ class KL8WallApplication : Application() {
         private set
     var batterySaverManager: BatterySaverManager? = null
         private set
+    var voiceAssistantManager: cloud.kl8techgroup.kl8wall.voice.VoiceAssistantManager? = null
+        private set
+    private var voiceAssistantJob: kotlinx.coroutines.Job? = null
 
     var isAppInForeground: Boolean = false
         private set
@@ -342,6 +345,18 @@ class KL8WallApplication : Application() {
         ble.start()
 
         peerManager?.start()
+
+        val voiceAssistant = cloud.kl8techgroup.kl8wall.voice.VoiceAssistantManager(this, settingsRepository)
+        voiceAssistantManager = voiceAssistant
+        voiceAssistantJob = serverScope.launch(Dispatchers.Main) {
+            settingsRepository.voiceAssistantEnabled.collect { enabled ->
+                if (enabled) {
+                    voiceAssistant.start()
+                } else {
+                    voiceAssistant.stop()
+                }
+            }
+        }
     }
 
     private fun handleIntercomCommand(cmd: String) {
@@ -365,6 +380,11 @@ class KL8WallApplication : Application() {
         castManager = null
         val serviceIntent = Intent(this, KL8WallService::class.java)
         stopService(serviceIntent)
+
+        voiceAssistantJob?.cancel()
+        voiceAssistantJob = null
+        voiceAssistantManager?.stop()
+        voiceAssistantManager = null
 
         batterySaverManager?.stop()
         batterySaverManager = null

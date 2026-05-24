@@ -85,6 +85,19 @@ import android.provider.Settings
 import androidx.lifecycle.lifecycleScope
 import android.content.BroadcastReceiver
 import kotlinx.coroutines.delay
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
 
 /**
  * Single activity hosting the kiosk WebView and Compose settings overlay.
@@ -806,16 +819,21 @@ private fun KL8WallScreen(
     val pendingSyncApproval by app.pendingSyncApproval.collectAsState()
     var passcodeLockManager by remember { mutableStateOf<PasscodeLockManager?>(app.passcodeLockManager) }
     var castManager by remember { mutableStateOf<CastManager?>(app.castManager) }
+    var voiceAssistantManager by remember { mutableStateOf<cloud.kl8techgroup.kl8wall.voice.VoiceAssistantManager?>(app.voiceAssistantManager) }
     LaunchedEffect(Unit) {
-        while (passcodeLockManager == null || castManager == null) {
+        while (passcodeLockManager == null || castManager == null || voiceAssistantManager == null) {
             passcodeLockManager = app.passcodeLockManager
             castManager = app.castManager
+            voiceAssistantManager = app.voiceAssistantManager
             delay(500)
         }
     }
 
     val isLocked by (passcodeLockManager?.isLocked?.collectAsState() ?: remember { mutableStateOf(false) })
     val currentCastUrl by (castManager?.castUrl?.collectAsState() ?: remember { mutableStateOf(null) })
+    val voiceState by (voiceAssistantManager?.state?.collectAsState() ?: remember { mutableStateOf(cloud.kl8techgroup.kl8wall.voice.VoiceState.IDLE) })
+    val userSpokenText by (voiceAssistantManager?.userSpokenText?.collectAsState() ?: remember { mutableStateOf("") })
+    val assistantResponseText by (voiceAssistantManager?.assistantResponseText?.collectAsState() ?: remember { mutableStateOf("") })
 
     var showPinGate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -900,6 +918,15 @@ private fun KL8WallScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+                }
+
+                if (voiceState != cloud.kl8techgroup.kl8wall.voice.VoiceState.IDLE && voiceState != cloud.kl8techgroup.kl8wall.voice.VoiceState.LISTENING_FOR_WAKEWORD) {
+                    VoiceAssistantOverlay(
+                        state = voiceState,
+                        userText = userSpokenText,
+                        assistantText = assistantResponseText,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }
@@ -1103,4 +1130,137 @@ private fun KioskWebViewContainer(
 
 private fun buildStartUrl(baseUrl: String, tokenProvider: () -> String): String {
     return baseUrl
+}
+
+@Composable
+fun VoiceAssistantOverlay(
+    state: cloud.kl8techgroup.kl8wall.voice.VoiceState,
+    userText: String,
+    assistantText: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.4f)),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "voiceGlow")
+        val scale by infiniteTransition.animateFloat(
+            initialValue = 0.9f,
+            targetValue = 1.2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "scale"
+        )
+        val alpha by infiniteTransition.animateFloat(
+            initialValue = 0.4f,
+            targetValue = 0.8f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "alpha"
+        )
+
+        Card(
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 48.dp)
+                .fillMaxWidth(0.85f)
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.25f),
+                            Color.White.copy(alpha = 0.05f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(28.dp)
+                ),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF1E1E2E).copy(alpha = 0.85f)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier.size(80.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(70.dp * scale)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFF89DCEB).copy(alpha = alpha * 0.4f),
+                                        Color(0xFF89B4FA).copy(alpha = 0f)
+                                    )
+                                ),
+                                shape = CircleShape
+                            )
+                    )
+                    
+                    val gradientColors = when (state) {
+                        cloud.kl8techgroup.kl8wall.voice.VoiceState.LISTENING_FOR_COMMAND -> listOf(Color(0xFF89DCEB), Color(0xFF89B4FA))
+                        cloud.kl8techgroup.kl8wall.voice.VoiceState.PROCESSING_COMMAND -> listOf(Color(0xFFCBA6F7), Color(0xFFF5C2E7))
+                        cloud.kl8techgroup.kl8wall.voice.VoiceState.SPEAKING_RESPONSE -> listOf(Color(0xFFA6E3A1), Color(0xFF94E2D5))
+                        else -> listOf(Color(0xFF45475A), Color(0xFF585B70))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .background(
+                                brush = Brush.linearGradient(colors = gradientColors),
+                                shape = CircleShape
+                            )
+                    )
+                }
+
+                val statusLabel = when (state) {
+                    cloud.kl8techgroup.kl8wall.voice.VoiceState.LISTENING_FOR_COMMAND -> "Listening..."
+                    cloud.kl8techgroup.kl8wall.voice.VoiceState.PROCESSING_COMMAND -> "Processing..."
+                    cloud.kl8techgroup.kl8wall.voice.VoiceState.SPEAKING_RESPONSE -> "Speaking..."
+                    else -> ""
+                }
+
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+
+                if (userText.isNotEmpty()) {
+                    Text(
+                        text = "\"$userText\"",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        color = Color.White,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+
+                if (state == cloud.kl8techgroup.kl8wall.voice.VoiceState.SPEAKING_RESPONSE && assistantText.isNotEmpty()) {
+                    Text(
+                        text = assistantText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFA6E3A1),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+            }
+        }
+    }
 }

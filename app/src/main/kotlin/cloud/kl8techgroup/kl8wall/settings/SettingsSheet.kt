@@ -257,6 +257,7 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
                         DisplaySleepCard(viewModel)
                         BatterySaverCard(viewModel)
                         IntercomCard(viewModel)
+                        VoiceAssistantCard(viewModel)
                     }
                     2 -> { // MQTT
                         MqttIdentityCard(viewModel)
@@ -626,6 +627,53 @@ private fun IntercomCard(viewModel: SettingsViewModel) {
                     Text("Start Loopback Test")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun VoiceAssistantCard(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val voiceAssistantEnabled by viewModel.voiceAssistantEnabled.collectAsState()
+    val voiceWakeWord by viewModel.voiceWakeWord.collectAsState()
+    
+    var editWakeWord by remember(voiceWakeWord) { mutableStateOf(voiceWakeWord) }
+    
+    SettingsCard(title = "Local Voice Assistant") {
+        SettingsToggleRow(
+            title = "Enable Voice Assistant",
+            description = "Periodically listen offline for the wake word to trigger voice commands",
+            checked = voiceAssistantEnabled,
+            onCheckedChange = { enabled ->
+                viewModel.setVoiceAssistantEnabled(enabled)
+                val app = context.applicationContext as? KL8WallApplication
+                if (enabled) {
+                    app?.voiceAssistantManager?.start()
+                } else {
+                    app?.voiceAssistantManager?.stop()
+                }
+            }
+        )
+        
+        if (voiceAssistantEnabled) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            
+            OutlinedTextField(
+                value = editWakeWord,
+                onValueChange = { editWakeWord = it },
+                label = { Text("Wake Word") },
+                placeholder = { Text("hey wall") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Button(
+                onClick = {
+                    viewModel.setVoiceWakeWord(editWakeWord.trim())
+                    Toast.makeText(context, "Wake word saved", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save Wake Word") }
         }
     }
 }

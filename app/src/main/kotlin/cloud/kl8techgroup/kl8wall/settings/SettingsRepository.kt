@@ -67,6 +67,8 @@ class SettingsRepository(context: Context) {
     private val _batterySaverMin = MutableStateFlow(prefs.getInt(KEY_BATTERY_SAVER_MIN, 20))
     private val _batterySaverMax = MutableStateFlow(prefs.getInt(KEY_BATTERY_SAVER_MAX, 80))
     private val _intercomTarget = MutableStateFlow(prefs.getString(KEY_INTERCOM_TARGET, "living_room") ?: "living_room")
+    private val _voiceAssistantEnabled = MutableStateFlow(prefs.getBoolean(KEY_VOICE_ASSISTANT_ENABLED, false))
+    private val _voiceWakeWord = MutableStateFlow(prefs.getString(KEY_VOICE_WAKE_WORD, "hey wall") ?: "hey wall")
 
     /** Unique device name for MQTT topics and mDNS hostnames. */
     val deviceName: StateFlow<String> = _deviceName.asStateFlow()
@@ -171,6 +173,12 @@ class SettingsRepository(context: Context) {
 
     /** Default target device name for intercom. */
     val intercomTarget: StateFlow<String> = _intercomTarget.asStateFlow()
+
+    /** Whether local voice assistant wake-word listening is enabled. */
+    val voiceAssistantEnabled: StateFlow<Boolean> = _voiceAssistantEnabled.asStateFlow()
+
+    /** The wake word to trigger voice assistant (e.g. "hey wall"). */
+    val voiceWakeWord: StateFlow<String> = _voiceWakeWord.asStateFlow()
 
     init {
         if (_httpBearerToken.value.isEmpty()) {
@@ -385,6 +393,16 @@ class SettingsRepository(context: Context) {
         _intercomTarget.value = target
     }
 
+    fun setVoiceAssistantEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VOICE_ASSISTANT_ENABLED, enabled).apply()
+        _voiceAssistantEnabled.value = enabled
+    }
+
+    fun setVoiceWakeWord(wakeWord: String) {
+        prefs.edit().putString(KEY_VOICE_WAKE_WORD, wakeWord).apply()
+        _voiceWakeWord.value = wakeWord
+    }
+
     private fun generateAndStoreHttpBearerToken() {
         val bytes = ByteArray(TOKEN_BYTE_LENGTH)
         SecureRandom().nextBytes(bytes)
@@ -444,6 +462,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_BATTERY_SAVER_MIN = "battery_saver_min"
         private const val KEY_BATTERY_SAVER_MAX = "battery_saver_max"
         private const val KEY_INTERCOM_TARGET = "intercom_target"
+        private const val KEY_VOICE_ASSISTANT_ENABLED = "voice_assistant_enabled"
+        private const val KEY_VOICE_WAKE_WORD = "voice_wake_word"
         private const val DEFAULT_HTTP_PORT = 8127
         private const val TOKEN_BYTE_LENGTH = 32
 

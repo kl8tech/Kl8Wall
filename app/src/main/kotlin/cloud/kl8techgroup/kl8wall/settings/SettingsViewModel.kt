@@ -48,6 +48,8 @@ class SettingsViewModel(
     val batterySaverMin: StateFlow<Int> = repository.batterySaverMin
     val batterySaverMax: StateFlow<Int> = repository.batterySaverMax
     val intercomTarget: StateFlow<String> = repository.intercomTarget
+    val voiceAssistantEnabled: StateFlow<Boolean> = repository.voiceAssistantEnabled
+    val voiceWakeWord: StateFlow<String> = repository.voiceWakeWord
     
     val deviceName: StateFlow<String> = repository.deviceName
     val mqttEnabled: StateFlow<Boolean> = repository.mqttEnabled
@@ -87,6 +89,8 @@ class SettingsViewModel(
     fun setBatterySaverMin(min: Int) = repository.setBatterySaverMin(min)
     fun setBatterySaverMax(max: Int) = repository.setBatterySaverMax(max)
     fun setIntercomTarget(target: String) = repository.setIntercomTarget(target)
+    fun setVoiceAssistantEnabled(enabled: Boolean) = repository.setVoiceAssistantEnabled(enabled)
+    fun setVoiceWakeWord(wakeWord: String) = repository.setVoiceWakeWord(wakeWord)
 
 
     fun setStartUrl(url: String) = repository.setStartUrl(url)
@@ -161,6 +165,16 @@ class SettingsViewModel(
                         repository.setPresenceTimeoutSeconds(json.optInt("presenceTimeoutSeconds", 60))
                         repository.setBluetoothProxyEnabled(json.optBoolean("bluetoothProxyEnabled", false))
                         repository.setCameraIntervalMinutes(json.optInt("cameraIntervalMinutes", 60))
+
+                        // Sync battery saver, voice assistant, and intercom target settings
+                        repository.setBatterySaverEnabled(json.optBoolean("batterySaverEnabled", false))
+                        repository.setBatterySaverEntityId(json.optString("batterySaverEntityId", "switch.tablet_charger"))
+                        repository.setBatterySaverMin(json.optInt("batterySaverMin", 20))
+                        repository.setBatterySaverMax(json.optInt("batterySaverMax", 80))
+                        repository.setVoiceAssistantEnabled(json.optBoolean("voiceAssistantEnabled", false))
+                        repository.setVoiceWakeWord(json.optString("voiceWakeWord", "hey wall"))
+                        repository.setIntercomTarget(json.optString("intercomTarget", "living_room"))
+                        
                         onSuccess()
                     }
                 } else {

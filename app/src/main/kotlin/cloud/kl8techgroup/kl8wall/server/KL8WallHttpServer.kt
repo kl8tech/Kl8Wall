@@ -418,6 +418,13 @@ class KL8WallHttpServer(
             put("presenceTimeoutSeconds", settingsRepository.presenceTimeoutSeconds.value)
             put("bluetoothProxyEnabled", settingsRepository.bluetoothProxyEnabled.value)
             put("cameraIntervalMinutes", settingsRepository.cameraIntervalMinutes.value)
+            put("batterySaverEnabled", settingsRepository.batterySaverEnabled.value)
+            put("batterySaverEntityId", settingsRepository.batterySaverEntityId.value)
+            put("batterySaverMin", settingsRepository.batterySaverMin.value)
+            put("batterySaverMax", settingsRepository.batterySaverMax.value)
+            put("voiceAssistantEnabled", settingsRepository.voiceAssistantEnabled.value)
+            put("voiceWakeWord", settingsRepository.voiceWakeWord.value)
+            put("intercomTarget", settingsRepository.intercomTarget.value)
         }
         return jsonResponse(Response.Status.OK, configObj.toString())
     }
