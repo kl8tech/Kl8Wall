@@ -1030,6 +1030,9 @@ private fun MeshNetworkCard(viewModel: SettingsViewModel) {
     val app = context.applicationContext as? KL8WallApplication
     val peerManager = app?.peerManager
     
+    val manualPeers by viewModel.manualPeers.collectAsState()
+    var editManualPeers by remember(manualPeers) { mutableStateOf(manualPeers) }
+    
     // Live Discovered Peers state
     var peerList by remember { mutableStateOf(emptyList<cloud.kl8techgroup.kl8wall.peer.PeerManager.PeerInfo>()) }
     LaunchedEffect(peerManager) {
@@ -1251,6 +1254,38 @@ private fun MeshNetworkCard(viewModel: SettingsViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            
+            Text(
+                text = "Manual Mesh Peer Connections",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "For panels on separate subnets/routers where auto-discovery is blocked, enter their IP addresses (and optional port) separated by commas.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            OutlinedTextField(
+                value = editManualPeers,
+                onValueChange = { editManualPeers = it },
+                label = { Text("Manual Peer IPs") },
+                placeholder = { Text("192.168.1.50, 192.168.2.100") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Button(
+                onClick = {
+                    viewModel.setManualPeers(editManualPeers.trim())
+                    Toast.makeText(context, "Manual peer list saved", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save Manual Peers")
             }
         }
     }

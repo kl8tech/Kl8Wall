@@ -232,6 +232,7 @@ class PeerManager(
             while (isActive) {
                 delay(PEER_STATUS_INTERVAL_MS)
                 pruneAndPollPeers()
+                pollManualPeers()
             }
         }
     }
@@ -287,6 +288,86 @@ class PeerManager(
         } catch (e: Exception) {
             Log.d(TAG, "Failed to poll status for peer ${peer.name}: ${e.message}")
         } finally {
+            connection?.disconnect()
+        }
+        false
+    }
+
+    private fun pollManualPeers() {
+        val manualList = settingsRepository.manualPeers.value.trim()
+        if (manualList.isEmpty()) return
+        
+        val hosts = manualList.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        hosts.forEach { hostStr ->
+            scope.launch {
+                val parts = hostStr.split(":")
+                val ip = parts[0]
+                val port = if (parts.size > 1) parts[1].toIntOrNull() ?: settingsRepository.httpPort.value else settingsRepository.httpPort.value
+                
+                pollManualPeerInfo(ip, port)
+            }
+        }
+    }
+
+    private suspend fun pollManualPeerInfo(ip: String, port: Int) = withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
+        try {
+            val url = URL("http://$ip:$port/api/peer/public_config")
+            connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.requestMethod = "GET"
+            
+            val meshAuth = getMeshAuthToken()
+            if (meshAuth.isNotEmpty()) {
+                connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
+            }
+            
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(text)
+                val name = json.optString("deviceName", "")
+                if (name.isNotEmpty() && name != settingsRepository.deviceName.value) {
+                    val mqttConn = pollMqttStatusForPeer(ip, port)
+                    val peer = PeerInfo(
+                        name = name,
+                        ip = ip,
+                        port = port,
+                        mqttConnected = mqttConn,
+                        lastSeen = System.currentTimeMillis()
+                    )
+                    peers[name] = peer
+                    Log.d(TAG, "Manual peer updated: $name at $ip:$port (MQTT connected: $mqttConn)")
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to poll manual peer info at $ip:$port: ${e.message}")
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    private suspend fun pollMqttStatusForPeer(ip: String, port: Int): Boolean = withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
+        try {
+            val url = URL("http://$ip:$port/api/status")
+            connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 3000
+            connection.readTimeout = 3000
+            connection.requestMethod = "GET"
+            
+            val meshAuth = getMeshAuthToken()
+            if (meshAuth.isNotEmpty()) {
+                connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
+            }
+            
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(text)
+                return@withContext json.optBoolean("mqttConnected", false)
+            }
+        } catch (_: Exception) {}
+        finally {
             connection?.disconnect()
         }
         false

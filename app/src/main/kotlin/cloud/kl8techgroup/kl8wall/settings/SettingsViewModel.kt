@@ -50,6 +50,7 @@ class SettingsViewModel(
     val intercomTarget: StateFlow<String> = repository.intercomTarget
     val voiceAssistantEnabled: StateFlow<Boolean> = repository.voiceAssistantEnabled
     val voiceWakeWord: StateFlow<String> = repository.voiceWakeWord
+    val manualPeers: StateFlow<String> = repository.manualPeers
     
     val deviceName: StateFlow<String> = repository.deviceName
     val mqttEnabled: StateFlow<Boolean> = repository.mqttEnabled
@@ -91,6 +92,7 @@ class SettingsViewModel(
     fun setIntercomTarget(target: String) = repository.setIntercomTarget(target)
     fun setVoiceAssistantEnabled(enabled: Boolean) = repository.setVoiceAssistantEnabled(enabled)
     fun setVoiceWakeWord(wakeWord: String) = repository.setVoiceWakeWord(wakeWord)
+    fun setManualPeers(peersList: String) = repository.setManualPeers(peersList)
 
 
     fun setStartUrl(url: String) = repository.setStartUrl(url)
@@ -143,6 +145,12 @@ class SettingsViewModel(
                 connection.readTimeout = 5000
                 connection.requestMethod = "GET"
                 
+                val app = cloud.kl8techgroup.kl8wall.KL8WallApplication.instance
+                val meshAuth = app.peerManager?.getMeshAuthToken() ?: ""
+                if (meshAuth.isNotEmpty()) {
+                    connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
+                }
+                
                 if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                     val text = connection.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(text)
@@ -174,6 +182,7 @@ class SettingsViewModel(
                         repository.setVoiceAssistantEnabled(json.optBoolean("voiceAssistantEnabled", false))
                         repository.setVoiceWakeWord(json.optString("voiceWakeWord", "hey wall"))
                         repository.setIntercomTarget(json.optString("intercomTarget", "living_room"))
+                        repository.setManualPeers(json.optString("manualPeers", ""))
                         
                         onSuccess()
                     }
@@ -208,6 +217,12 @@ class SettingsViewModel(
                 connection.connectTimeout = 35000 // 35 seconds to allow time for approval
                 connection.readTimeout = 35000
                 connection.requestMethod = "GET"
+                
+                val app = cloud.kl8techgroup.kl8wall.KL8WallApplication.instance
+                val meshAuth = app.peerManager?.getMeshAuthToken() ?: ""
+                if (meshAuth.isNotEmpty()) {
+                    connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
+                }
                 
                 if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                     val text = connection.inputStream.bufferedReader().use { it.readText() }

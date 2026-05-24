@@ -69,6 +69,7 @@ class SettingsRepository(context: Context) {
     private val _intercomTarget = MutableStateFlow(prefs.getString(KEY_INTERCOM_TARGET, "living_room") ?: "living_room")
     private val _voiceAssistantEnabled = MutableStateFlow(prefs.getBoolean(KEY_VOICE_ASSISTANT_ENABLED, false))
     private val _voiceWakeWord = MutableStateFlow(prefs.getString(KEY_VOICE_WAKE_WORD, "hey wall") ?: "hey wall")
+    private val _manualPeers = MutableStateFlow(prefs.getString(KEY_MANUAL_PEERS, "") ?: "")
 
     /** Unique device name for MQTT topics and mDNS hostnames. */
     val deviceName: StateFlow<String> = _deviceName.asStateFlow()
@@ -179,6 +180,9 @@ class SettingsRepository(context: Context) {
 
     /** The wake word to trigger voice assistant (e.g. "hey wall"). */
     val voiceWakeWord: StateFlow<String> = _voiceWakeWord.asStateFlow()
+
+    /** Comma-separated list of manual peer IP addresses (e.g. 192.168.1.100, 192.168.2.105). */
+    val manualPeers: StateFlow<String> = _manualPeers.asStateFlow()
 
     init {
         if (_httpBearerToken.value.isEmpty()) {
@@ -403,6 +407,11 @@ class SettingsRepository(context: Context) {
         _voiceWakeWord.value = wakeWord
     }
 
+    fun setManualPeers(peersList: String) {
+        prefs.edit().putString(KEY_MANUAL_PEERS, peersList).apply()
+        _manualPeers.value = peersList
+    }
+
     private fun generateAndStoreHttpBearerToken() {
         val bytes = ByteArray(TOKEN_BYTE_LENGTH)
         SecureRandom().nextBytes(bytes)
@@ -464,6 +473,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_INTERCOM_TARGET = "intercom_target"
         private const val KEY_VOICE_ASSISTANT_ENABLED = "voice_assistant_enabled"
         private const val KEY_VOICE_WAKE_WORD = "voice_wake_word"
+        private const val KEY_MANUAL_PEERS = "manual_peers"
         private const val DEFAULT_HTTP_PORT = 8127
         private const val TOKEN_BYTE_LENGTH = 32
 

@@ -312,7 +312,7 @@ class KL8WallHttpServer(
         if (verifyBearer(session)) return true
 
         val uri = session.uri ?: ""
-        if (uri == "/api/peer/relay" || uri == "/api/peer/command") {
+        if (uri == "/api/status" || uri == "/api/peer/relay" || uri == "/api/peer/command" || uri == "/api/peer/public_config" || uri == "/api/peer/secure_config") {
             val meshAuthHeader = session.headers["x-kl8wall-mesh-auth"] ?: return false
             val peerManager = KL8WallApplication.instance.peerManager ?: return false
             val expectedAuth = peerManager.getMeshAuthToken()
@@ -410,6 +410,7 @@ class KL8WallHttpServer(
 
     private fun handleGetPublicConfig(): Response {
         val configObj = JSONObject().apply {
+            put("deviceName", settingsRepository.deviceName.value)
             put("startUrl", settingsRepository.startUrl.value)
             put("mqttBroker", settingsRepository.mqttBroker.value)
             put("mqttPort", settingsRepository.mqttPort.value)
@@ -425,6 +426,7 @@ class KL8WallHttpServer(
             put("voiceAssistantEnabled", settingsRepository.voiceAssistantEnabled.value)
             put("voiceWakeWord", settingsRepository.voiceWakeWord.value)
             put("intercomTarget", settingsRepository.intercomTarget.value)
+            put("manualPeers", settingsRepository.manualPeers.value)
         }
         return jsonResponse(Response.Status.OK, configObj.toString())
     }
