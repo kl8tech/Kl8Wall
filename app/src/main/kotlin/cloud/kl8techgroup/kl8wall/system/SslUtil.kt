@@ -19,19 +19,8 @@ import javax.net.ssl.X509TrustManager
 object SslUtil {
     private const val TAG = "SslUtil"
 
-    val tlsSocketFactory: SSLSocketFactory by lazy {
+    val trustManager: X509TrustManager by lazy {
         try {
-            TLSSocketFactory()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize shared TLSSocketFactory", e)
-            SSLSocketFactory.getDefault() as SSLSocketFactory
-        }
-    }
-
-    class TLSSocketFactory : SSLSocketFactory() {
-        private val delegate: SSLSocketFactory
-
-        init {
             // 1. Load default trust manager
             val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
             tmf.init(null as KeyStore?)
@@ -81,14 +70,34 @@ object SslUtil {
             customTmf.init(keyStore)
             val customTm = customTmf.trustManagers.firstOrNull { it is X509TrustManager } as? X509TrustManager
 
-            val trustManagers = if (defaultTm != null && customTm != null) {
-                arrayOf(CustomTrustManager(defaultTm, customTm))
+            if (defaultTm != null && customTm != null) {
+                CustomTrustManager(defaultTm, customTm)
             } else {
-                customTmf.trustManagers
+                customTm ?: defaultTm ?: throw IllegalStateException("No trust manager available")
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize custom trust manager", e)
+            val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+            tmf.init(null as KeyStore?)
+            tmf.trustManagers.first { it is X509TrustManager } as X509TrustManager
+        }
+    }
 
+    val tlsSocketFactory: SSLSocketFactory by lazy {
+        try {
+            TLSSocketFactory(trustManager)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize shared TLSSocketFactory", e)
+            SSLSocketFactory.getDefault() as SSLSocketFactory
+        }
+    }
+
+    class TLSSocketFactory(tm: X509TrustManager) : SSLSocketFactory() {
+        private val delegate: SSLSocketFactory
+
+        init {
             val sslContext = SSLContext.getInstance("TLS").apply {
-                init(null, trustManagers, java.security.SecureRandom())
+                init(null, arrayOf(tm), java.security.SecureRandom())
             }
             delegate = sslContext.socketFactory
         }

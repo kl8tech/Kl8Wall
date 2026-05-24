@@ -22,6 +22,7 @@ import cloud.kl8techgroup.kl8wall.cast.CastManager
 import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockManager
 import cloud.kl8techgroup.kl8wall.system.KL8WallService
 import cloud.kl8techgroup.kl8wall.system.BatterySaverManager
+import cloud.kl8techgroup.kl8wall.system.SslUtil
 import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,10 @@ class KL8WallApplication : Application() {
 
     /** Over-the-air update manager. */
     lateinit var otaManager: OtaManager
+        private set
+
+    /** Shared OkHttpClient instance with connection pooling. */
+    lateinit var okHttpClient: okhttp3.OkHttpClient
         private set
 
     private var httpServer: KL8WallHttpServer? = null
@@ -109,6 +114,13 @@ class KL8WallApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        okHttpClient = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .connectionPool(okhttp3.ConnectionPool(5, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .sslSocketFactory(SslUtil.tlsSocketFactory, SslUtil.trustManager)
+            .build()
         settingsRepository = SettingsRepository(this)
         brightnessController = BrightnessController(this)
         ttsController = TtsController(this)

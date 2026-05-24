@@ -160,6 +160,20 @@ class MainActivity : ComponentActivity() {
 
         kioskLockManager = KioskLockManager(this)
         screenController = ScreenController(this)
+
+        // Purge WebView RAM cache and GC when screen goes off
+        lifecycleScope.launch {
+            screenController.isScreenOn.collect { isScreenOn ->
+                if (!isScreenOn) {
+                    Log.i("MainActivity", "Screen turned off. Purging WebView RAM cache and performing GC.")
+                    mainHandler.post {
+                        kioskWebView?.onPause()
+                        kioskWebView?.clearCache(false)
+                        System.gc()
+                    }
+                }
+            }
+        }
         hotCornerDetector = HotCornerDetector(
             cornerProvider = { app.settingsRepository.hotCorner.value },
             onTriggered = {
@@ -721,6 +735,8 @@ class MainActivity : ComponentActivity() {
             Log.i("MainActivity", "Entering low power sleep mode: pausing webview, dimming screen to 0%")
             mainHandler.post {
                 kioskWebView?.onPause()
+                kioskWebView?.clearCache(false)
+                System.gc()
                 app.brightnessController.setBrightness(0)
             }
         } else {

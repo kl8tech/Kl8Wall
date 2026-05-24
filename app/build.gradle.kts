@@ -154,6 +154,7 @@ dependencies {
 
     // MQTT
     implementation(libs.mqtt.client)
+    implementation(libs.okhttp)
 
     // Protobuf Lite
     implementation(libs.protobuf.javalite)

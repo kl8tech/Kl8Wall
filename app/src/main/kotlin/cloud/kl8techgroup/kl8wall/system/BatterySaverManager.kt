@@ -12,11 +12,10 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
 import java.net.URI
-import java.net.URL
 import org.json.JSONObject
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Monitors device battery level and controls a physical smart plug/charger
@@ -171,37 +170,28 @@ class BatterySaverManager(
             val service = if (on) "turn_on" else "turn_off"
             val urlSpec = "$baseUrl/api/services/switch/$service"
             Log.d(TAG, "Sending service call to HA: $urlSpec for $entityId")
-            
-            val url = URL(urlSpec)
-            val conn = url.openConnection() as HttpURLConnection
-            if (conn is javax.net.ssl.HttpsURLConnection) {
-                conn.sslSocketFactory = SslUtil.tlsSocketFactory
-            }
-            conn.requestMethod = "POST"
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
-            conn.doOutput = true
-            conn.setRequestProperty("Authorization", "Bearer $token")
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
 
             val jsonBody = JSONObject().apply {
                 put("entity_id", entityId)
-            }
+            }.toString()
 
-            conn.outputStream.use { os ->
-                OutputStreamWriter(os, "UTF-8").use { writer ->
-                    writer.write(jsonBody.toString())
-                    writer.flush()
+            val app = context.applicationContext as cloud.kl8techgroup.kl8wall.KL8WallApplication
+            val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+            val requestBody = jsonBody.toRequestBody(mediaType)
+            val request = okhttp3.Request.Builder()
+                .url(urlSpec)
+                .post(requestBody)
+                .header("Authorization", "Bearer $token")
+                .build()
+
+            app.okHttpClient.newCall(request).execute().use { response ->
+                val responseCode = response.code
+                if (response.isSuccessful) {
+                    Log.i(TAG, "Successfully sent HA service call: $service for $entityId (HTTP $responseCode)")
+                } else {
+                    Log.e(TAG, "Failed to send HA service call: HTTP $responseCode, message: ${response.message}")
                 }
             }
-
-            val responseCode = conn.responseCode
-            if (responseCode in 200..299) {
-                Log.i(TAG, "Successfully sent HA service call: $service for $entityId (HTTP $responseCode)")
-            } else {
-                Log.e(TAG, "Failed to send HA service call: HTTP $responseCode, message: ${conn.responseMessage}")
-            }
-            conn.disconnect()
         } catch (e: Exception) {
             Log.e(TAG, "Error sending HA service call", e)
         }

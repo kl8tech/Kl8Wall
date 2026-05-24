@@ -266,7 +266,7 @@ class CameraManager(
     }
 
     private fun checkCameraRelease() {
-        if (!isStreamingEnabled && periodicJob == null) {
+        if (streamingJob == null && periodicJob == null) {
             unbindCamera()
         }
     }

@@ -9,9 +9,9 @@ import cloud.kl8techgroup.kl8wall.server.WifiHelper
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.io.InputStream
-import java.net.HttpURLConnection
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.InetAddress
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceEvent
@@ -277,31 +277,29 @@ class PeerManager(
     }
 
     private suspend fun pollPeerStatus(peer: PeerInfo): Boolean = withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
+        val app = context.applicationContext as KL8WallApplication
+        val requestBuilder = okhttp3.Request.Builder()
+            .url("http://${peer.ip}:${peer.port}/api/status")
+            .get()
+        
+        val meshAuth = getMeshAuthToken()
+        if (meshAuth.isNotEmpty()) {
+            requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
+        }
+        
         try {
-            val url = URL("http://${peer.ip}:${peer.port}/api/status")
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            connection.requestMethod = "GET"
-            
-            val meshAuth = getMeshAuthToken()
-            if (meshAuth.isNotEmpty()) {
-                connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
-            }
-            
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val text = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(text)
-                val isConnected = json.optBoolean("mqttConnected", false)
-                peer.mqttConnected = isConnected
-                peer.lastSeen = System.currentTimeMillis()
-                return@withContext true
+            app.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string() ?: ""
+                    val json = JSONObject(bodyString)
+                    val isConnected = json.optBoolean("mqttConnected", false)
+                    peer.mqttConnected = isConnected
+                    peer.lastSeen = System.currentTimeMillis()
+                    return@withContext true
+                }
             }
         } catch (e: Exception) {
             Log.d(TAG, "Failed to poll status for peer ${peer.name}: ${e.message}")
-        } finally {
-            connection?.disconnect()
         }
         false
     }
@@ -323,72 +321,67 @@ class PeerManager(
     }
 
     private suspend fun pollManualPeerInfo(ip: String, port: Int) = withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
+        val app = context.applicationContext as KL8WallApplication
+        val requestBuilder = okhttp3.Request.Builder()
+            .url("http://$ip:$port/api/peer/public_config")
+            .get()
+        
+        val meshAuth = getMeshAuthToken()
+        if (meshAuth.isNotEmpty()) {
+            requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
+        }
+        
         try {
-            val url = URL("http://$ip:$port/api/peer/public_config")
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            connection.requestMethod = "GET"
-            
-            val meshAuth = getMeshAuthToken()
-            if (meshAuth.isNotEmpty()) {
-                connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
-            }
-            
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val text = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(text)
-                val name = json.optString("deviceName", "")
-                if (name.isNotEmpty() && name != settingsRepository.deviceName.value) {
-                    val mqttConn = pollMqttStatusForPeer(ip, port)
-                    val peer = PeerInfo(
-                        name = name,
-                        ip = ip,
-                        port = port,
-                        mqttConnected = mqttConn,
-                        lastSeen = System.currentTimeMillis()
-                    )
-                    peers[name] = peer
-                    Log.d(TAG, "Manual peer updated: $name at $ip:$port (MQTT connected: $mqttConn)")
-                    
-                    // Re-evaluate dynamic subscriptions and proxies based on updated status
-                    scope.launch {
-                        evaluateDynamicSubscriptions()
-                        evaluateEsphomeProxies()
+            app.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string() ?: ""
+                    val json = JSONObject(bodyString)
+                    val name = json.optString("deviceName", "")
+                    if (name.isNotEmpty() && name != settingsRepository.deviceName.value) {
+                        val mqttConn = pollMqttStatusForPeer(ip, port)
+                        val peer = PeerInfo(
+                            name = name,
+                            ip = ip,
+                            port = port,
+                            mqttConnected = mqttConn,
+                            lastSeen = System.currentTimeMillis()
+                        )
+                        peers[name] = peer
+                        Log.d(TAG, "Manual peer updated: $name at $ip:$port (MQTT connected: $mqttConn)")
+                        
+                        // Re-evaluate dynamic subscriptions and proxies based on updated status
+                        scope.launch {
+                            evaluateDynamicSubscriptions()
+                            evaluateEsphomeProxies()
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             Log.d(TAG, "Failed to poll manual peer info at $ip:$port: ${e.message}")
-        } finally {
-            connection?.disconnect()
         }
     }
 
     private suspend fun pollMqttStatusForPeer(ip: String, port: Int): Boolean = withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
+        val app = context.applicationContext as KL8WallApplication
+        val requestBuilder = okhttp3.Request.Builder()
+            .url("http://$ip:$port/api/status")
+            .get()
+        
+        val meshAuth = getMeshAuthToken()
+        if (meshAuth.isNotEmpty()) {
+            requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
+        }
+        
         try {
-            val url = URL("http://$ip:$port/api/status")
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 3000
-            connection.readTimeout = 3000
-            connection.requestMethod = "GET"
-            
-            val meshAuth = getMeshAuthToken()
-            if (meshAuth.isNotEmpty()) {
-                connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
-            }
-            
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val text = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(text)
-                return@withContext json.optBoolean("mqttConnected", false)
+            app.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string() ?: ""
+                    val json = JSONObject(bodyString)
+                    return@withContext json.optBoolean("mqttConnected", false)
+                }
             }
         } catch (_: Exception) {}
-        finally {
-            connection?.disconnect()
-        }
         false
     }
 
@@ -463,37 +456,31 @@ class PeerManager(
     }
 
     private suspend fun relayCommandToPeer(peer: PeerInfo, topic: String, payload: String, isBase64: Boolean = false) = withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
+        val app = context.applicationContext as KL8WallApplication
+        val bodyJson = JSONObject().apply {
+            put("topic", topic)
+            put("payload", payload)
+            put("is_base64", isBase64)
+        }.toString()
+        
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val requestBody = bodyJson.toRequestBody(mediaType)
+        
+        val requestBuilder = okhttp3.Request.Builder()
+            .url("http://${peer.ip}:${peer.port}/api/peer/command")
+            .post(requestBody)
+        
+        val meshAuth = getMeshAuthToken()
+        if (meshAuth.isNotEmpty()) {
+            requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
+        }
+        
         try {
-            val url = URL("http://${peer.ip}:${peer.port}/api/peer/command")
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            
-            val meshAuth = getMeshAuthToken()
-            if (meshAuth.isNotEmpty()) {
-                connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
+            app.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                Log.d(TAG, "Peer command relay response code: ${response.code}")
             }
-
-            val body = JSONObject().apply {
-                put("topic", topic)
-                put("payload", payload)
-                put("is_base64", isBase64)
-            }.toString()
-
-            connection.outputStream.use { out ->
-                out.write(body.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            Log.d(TAG, "Peer command relay response code: $responseCode")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to relay command to peer ${peer.name}", e)
-        } finally {
-            connection?.disconnect()
         }
     }
 
@@ -522,56 +509,49 @@ class PeerManager(
     }
 
     private suspend fun relayMessageToPeer(peer: PeerInfo, topic: String, payload: String, isBase64: Boolean = false): Boolean = withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
+        val app = context.applicationContext as KL8WallApplication
+        val bodyJson = JSONObject().apply {
+            put("topic", topic)
+            put("payload", payload)
+            put("is_base64", isBase64)
+        }.toString()
+        
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val requestBody = bodyJson.toRequestBody(mediaType)
+        
+        val requestBuilder = okhttp3.Request.Builder()
+            .url("http://${peer.ip}:${peer.port}/api/peer/relay")
+            .post(requestBody)
+        
+        val meshAuth = getMeshAuthToken()
+        if (meshAuth.isNotEmpty()) {
+            requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
+        }
+        
         try {
-            val url = URL("http://${peer.ip}:${peer.port}/api/peer/relay")
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            
-            val meshAuth = getMeshAuthToken()
-            if (meshAuth.isNotEmpty()) {
-                connection.setRequestProperty("x-kl8wall-mesh-auth", meshAuth)
-            }
+            app.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string() ?: ""
+                    val json = JSONObject(bodyString)
+                    
+                    val reconnectRequested = json.optBoolean("reconnect_requested", false)
+                    val resolvedBrokerIp = json.optString("broker_resolved_ip", "")
 
-            val body = JSONObject().apply {
-                put("topic", topic)
-                put("payload", payload)
-                put("is_base64", isBase64)
-            }.toString()
+                    if (reconnectRequested) {
+                        Log.i(TAG, "Peer requested reconnection. Triggering MQTT reconnect...")
+                        app.mqttManager?.reconnect()
+                    }
 
-            connection.outputStream.use { out ->
-                out.write(body.toByteArray(Charsets.UTF_8))
-            }
-
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val text = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(text)
-                
-                val reconnectRequested = json.optBoolean("reconnect_requested", false)
-                val resolvedBrokerIp = json.optString("broker_resolved_ip", "")
-
-                if (reconnectRequested) {
-                    Log.i(TAG, "Peer requested reconnection. Triggering MQTT reconnect...")
-                    val app = context.applicationContext as KL8WallApplication
-                    app.mqttManager?.reconnect()
+                    if (resolvedBrokerIp.isNotEmpty()) {
+                        Log.i(TAG, "Peer provided resolved broker IP: $resolvedBrokerIp. Applying override...")
+                        app.mqttManager?.setBrokerIpOverride(resolvedBrokerIp)
+                    }
+                    
+                    return@withContext true
                 }
-
-                if (resolvedBrokerIp.isNotEmpty()) {
-                    Log.i(TAG, "Peer provided resolved broker IP: $resolvedBrokerIp. Applying override...")
-                    val app = context.applicationContext as KL8WallApplication
-                    app.mqttManager?.setBrokerIpOverride(resolvedBrokerIp)
-                }
-                
-                return@withContext true
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send relay message to peer ${peer.name}", e)
-        } finally {
-            connection?.disconnect()
         }
         false
     }
