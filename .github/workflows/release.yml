@@ -2,8 +2,8 @@ name: Build and Release KL8Wall
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
 
 permissions:
   contents: write
@@ -46,24 +46,28 @@ jobs:
         run: |
           VERSION_CODE=$(grep "versionCode =" app/build.gradle.kts | tr -d ' ' | cut -d'=' -f2)
           VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | tr -d ' ' | tr -d '"' | cut -d'=' -f2)
+          TAG="v${VERSION_NAME}"
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_OUTPUT
           echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
 
       - name: Create or Update update.json
         run: |
+          TAG="${{ steps.meta.outputs.TAG }}"
+          APK_URL="https://github.com/kl8tech/Kl8Wall/releases/download/${TAG}/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk"
           if [ -f update.json ]; then
             jq --arg version "${{ steps.meta.outputs.VERSION_NAME }}" \
                --argjson versionCode "${{ steps.meta.outputs.VERSION_CODE }}" \
-               --arg url "https://github.com/kl8tech/Kl8Wall/releases/download/${{ github.ref_name }}/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk" \
-               --arg default_changelog "Release ${{ github.ref_name }} - Please see GitHub release notes for details." \
+               --arg url "$APK_URL" \
+               --arg default_changelog "Release ${TAG} - Please see GitHub release notes for details." \
                '.version = $version | .versionCode = $versionCode | .url = $url | .changelog = (.changelog // $default_changelog)' \
                update.json > update.json.tmp && mv update.json.tmp update.json
           else
             jq -n \
                --arg version "${{ steps.meta.outputs.VERSION_NAME }}" \
                --argjson versionCode "${{ steps.meta.outputs.VERSION_CODE }}" \
-               --arg url "https://github.com/kl8tech/Kl8Wall/releases/download/${{ github.ref_name }}/kl8wall-v${{ steps.meta.outputs.VERSION_CODE }}.apk" \
-               --arg changelog "Release ${{ github.ref_name }} - Please see GitHub release notes for details." \
+               --arg url "$APK_URL" \
+               --arg changelog "Release ${TAG} - Please see GitHub release notes for details." \
                '{version: $version, versionCode: $versionCode, url: $url, changelog: $changelog}' > update.json
           fi
 
@@ -75,8 +79,8 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ steps.meta.outputs.TAG }}
+          name: Release ${{ steps.meta.outputs.TAG }}
           draft: false
           prerelease: false
           files: |
