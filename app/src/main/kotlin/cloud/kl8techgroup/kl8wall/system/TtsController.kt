@@ -18,16 +18,26 @@ class TtsController(context: Context) : TextToSpeech.OnInitListener {
     @Volatile
     private var ready = false
 
+    @Volatile
+    private var pendingUtterance: String? = null
+
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.getDefault()
             ready = true
+            pendingUtterance?.let { queued ->
+                pendingUtterance = null
+                tts.speak(queued, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
+            }
         }
     }
 
-    /** Speak [text]. No-ops if the engine is not yet initialised. */
+    /** Speak [text]. Queues the utterance if the engine is still initialising. */
     fun speak(text: String) {
-        if (!ready) return
+        if (!ready) {
+            pendingUtterance = text
+            return
+        }
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
     }
 

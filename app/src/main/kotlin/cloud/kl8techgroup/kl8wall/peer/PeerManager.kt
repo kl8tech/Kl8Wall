@@ -30,7 +30,7 @@ class PeerManager(
     companion object {
         private const val TAG = "PeerManager"
         private const val SERVICE_TYPE = "_kl8wall._tcp.local."
-        private const val PEER_STATUS_INTERVAL_MS = 30000L
+        private const val PEER_STATUS_INTERVAL_MS = 10000L
         private const val PEER_EXPIRY_MS = 1800000L
     }
 
@@ -39,6 +39,8 @@ class PeerManager(
         val ip: String,
         val port: Int,
         var mqttConnected: Boolean = false,
+        var meshReachable: Boolean = false,
+        var consecutiveHttpFailures: Int = 0,
         var lastSeen: Long = System.currentTimeMillis()
     )
 
@@ -184,6 +186,8 @@ class PeerManager(
                                 ip = ip,
                                 port = port,
                                 mqttConnected = isMqttConnected,
+                                meshReachable = true,
+                                consecutiveHttpFailures = 0,
                                 lastSeen = System.currentTimeMillis()
                             )
                             peers[name] = peer
@@ -277,16 +281,22 @@ class PeerManager(
     }
 
     private suspend fun pollPeerStatus(peer: PeerInfo): Boolean = withContext(Dispatchers.IO) {
+        // Exponential backoff: skip poll if recently failed multiple times
+        val backoffMs = minOf(peer.consecutiveHttpFailures * PEER_STATUS_INTERVAL_MS, 60000L)
+        if (peer.consecutiveHttpFailures > 0 && System.currentTimeMillis() - peer.lastSeen < backoffMs) {
+            return@withContext peer.meshReachable
+        }
+
         val app = context.applicationContext as KL8WallApplication
         val requestBuilder = okhttp3.Request.Builder()
             .url("http://${peer.ip}:${peer.port}/api/status")
             .get()
-        
+
         val meshAuth = getMeshAuthToken()
         if (meshAuth.isNotEmpty()) {
             requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
         }
-        
+
         try {
             app.okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                 if (response.isSuccessful) {
@@ -294,6 +304,8 @@ class PeerManager(
                     val json = JSONObject(bodyString)
                     val isConnected = json.optBoolean("mqttConnected", false)
                     peer.mqttConnected = isConnected
+                    peer.meshReachable = true
+                    peer.consecutiveHttpFailures = 0
                     peer.lastSeen = System.currentTimeMillis()
                     return@withContext true
                 }
@@ -301,6 +313,8 @@ class PeerManager(
         } catch (e: Exception) {
             Log.d(TAG, "Failed to poll status for peer ${peer.name}: ${e.message}")
         }
+        peer.consecutiveHttpFailures++
+        peer.meshReachable = false
         false
     }
 
@@ -584,6 +598,59 @@ class PeerManager(
         }
     }
 
+    /**
+     * Sends an intercom signaling message directly to a peer via HTTP.
+     * Used as fallback when MQTT is offline but the peer is mesh-reachable.
+     */
+    fun sendIntercomSignal(targetName: String, type: String, sender: String): Boolean {
+        val peer = peers[targetName] ?: return false
+        if (!peer.meshReachable) return false
+
+        val app = context.applicationContext as KL8WallApplication
+        val bodyJson = JSONObject().apply {
+            put("type", type)
+            put("sender", sender)
+        }.toString()
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val requestBody = bodyJson.toRequestBody(mediaType)
+        val requestBuilder = okhttp3.Request.Builder()
+            .url("http://${peer.ip}:${peer.port}/api/intercom/signal")
+            .post(requestBody)
+        val meshAuth = getMeshAuthToken()
+        if (meshAuth.isNotEmpty()) requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
+
+        return try {
+            app.okHttpClient.newCall(requestBuilder.build()).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to send intercom signal ($type) to $targetName: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Sends a raw PCM audio chunk directly to a peer via HTTP.
+     * Fire-and-forget — used during active calls when MQTT is offline.
+     */
+    fun sendAudioChunkHttp(targetName: String, bytes: ByteArray): Boolean {
+        val peer = peers[targetName] ?: return false
+        if (!peer.meshReachable) return false
+
+        val app = context.applicationContext as KL8WallApplication
+        val mediaType = "application/octet-stream".toMediaTypeOrNull()
+        val requestBody = bytes.toRequestBody(mediaType)
+        val requestBuilder = okhttp3.Request.Builder()
+            .url("http://${peer.ip}:${peer.port}/api/intercom/audio")
+            .post(requestBody)
+        val meshAuth = getMeshAuthToken()
+        if (meshAuth.isNotEmpty()) requestBuilder.header("x-kl8wall-mesh-auth", meshAuth)
+
+        app.okHttpClient.newCall(requestBuilder.build()).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.close() }
+        })
+        return true
+    }
+
     fun getMeshAuthToken(): String {
         val password = settingsRepository.mqttPassword.value
         if (password.isBlank()) return ""
@@ -675,8 +742,8 @@ class PeerManager(
         }
         
         val txtRecords = mapOf(
-            "version" to "2026.1.0",
-            "device" to "KL8Wall Proxy",
+            "version" to cloud.kl8techgroup.kl8wall.BuildConfig.VERSION_NAME,
+            "device" to "KL8Wall BLE Proxy",
             "mac" to getPseudoMacAddress(peerName)
         )
         val serviceInfo = ServiceInfo.create(

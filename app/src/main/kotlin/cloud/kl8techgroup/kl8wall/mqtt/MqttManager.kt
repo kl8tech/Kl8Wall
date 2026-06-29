@@ -32,6 +32,9 @@ import cloud.kl8techgroup.kl8wall.system.SslUtil
 import cloud.kl8techgroup.kl8wall.cast.CastManager
 import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockManager
 import cloud.kl8techgroup.kl8wall.system.PresenceSensorManager
+import android.os.Build
+import cloud.kl8techgroup.kl8wall.BuildConfig
+import cloud.kl8techgroup.kl8wall.server.WifiHelper
 
 enum class MqttConnectionState {
     DISCONNECTED,
@@ -393,12 +396,16 @@ class MqttManager(
     }
 
     private fun publishDiscovery(deviceName: String) {
+        val ip = WifiHelper.getWifiIpAddress(context) ?: "localhost"
+        val port = settingsRepository.httpPort.value
         val deviceJson = JSONObject().apply {
             put("identifiers", JSONArray().apply { put("kl8wall_$deviceName") })
-            put("name", deviceName)
-            put("manufacturer", "kl8techgroup")
+            put("name", "KL8Wall $deviceName")
+            put("manufacturer", "KL8TechGroup")
             put("model", "KL8Wall")
-            put("sw_version", "1.0.0")
+            put("hw_version", Build.MODEL)
+            put("sw_version", BuildConfig.VERSION_NAME)
+            put("configuration_url", "http://$ip:$port")
         }
 
         // Light

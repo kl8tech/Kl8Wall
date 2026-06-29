@@ -111,7 +111,7 @@ class KL8WallService : Service() {
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
             if (wifiManager != null) {
                 val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
                 } else {
                     @Suppress("DEPRECATION")
                     android.net.wifi.WifiManager.WIFI_MODE_FULL

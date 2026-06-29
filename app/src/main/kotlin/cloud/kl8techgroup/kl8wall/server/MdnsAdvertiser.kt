@@ -101,7 +101,7 @@ class MdnsAdvertiser(private val context: Context) {
         }
     }
 
-    /** Stop advertising. */
+    /** Stop advertising. Sleeps briefly after unregistering to allow the goodbye packet to propagate. */
     @Synchronized
     fun stop() {
         val j = jmdns
@@ -109,6 +109,7 @@ class MdnsAdvertiser(private val context: Context) {
         if (j != null && service != null) {
             try {
                 j.unregisterService(service)
+                Thread.sleep(200)
             } catch (_: Exception) {}
         }
         jmdns = null

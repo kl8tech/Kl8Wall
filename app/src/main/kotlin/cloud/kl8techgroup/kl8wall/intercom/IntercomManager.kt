@@ -68,6 +68,18 @@ class IntercomManager(
 
     var onStateChanged: ((isRecording: Boolean) -> Unit)? = null
 
+    /**
+     * Called when MQTT is offline; delivers intercom signaling (invite/accept/decline/hangup)
+     * directly to the peer over the HTTP mesh. Set by KL8WallApplication.
+     */
+    var publishSignalingFallback: ((target: String, type: String, sender: String) -> Unit)? = null
+
+    /**
+     * Called when MQTT is offline; delivers a raw PCM audio chunk directly to the peer
+     * over the HTTP mesh. Set by KL8WallApplication.
+     */
+    var publishAudioChunkFallback: ((target: String, bytes: ByteArray) -> Unit)? = null
+
     val isRecordingActive: Boolean
         get() = isRecording.get()
 
@@ -90,6 +102,26 @@ class IntercomManager(
         if (mqtt != null && mqtt.isConnected()) {
             val topic = "kl8wall/$target/call/$topicSuffix"
             mqtt.publishExternally(topic, payload.toString(), false)
+        } else {
+            // MQTT offline — fall back to direct HTTP signaling via the mesh
+            val thisDevice = app?.settingsRepository?.deviceName?.value ?: ""
+            publishSignalingFallback?.invoke(target, topicSuffix, thisDevice)
+                ?: Log.w(TAG, "Cannot deliver signal '$topicSuffix' to $target: MQTT offline and no HTTP fallback registered")
+        }
+    }
+
+    /**
+     * Routes an intercom signal received via HTTP mesh directly into the call state machine.
+     * Called by the HTTP server when a peer sends a signal without MQTT.
+     */
+    fun handleIncomingSignal(type: String, sender: String) {
+        Log.i(TAG, "Received HTTP mesh intercom signal: type=$type from=$sender")
+        when (type) {
+            "invite" -> receiveInvite(sender)
+            "accept" -> receiveAccept(sender)
+            "decline" -> receiveDecline(sender)
+            "hangup" -> receiveHangup(sender)
+            else -> Log.w(TAG, "Unknown intercom signal type '$type' from $sender")
         }
     }
 
@@ -432,7 +464,16 @@ class IntercomManager(
                 val read = audioRecord.read(buffer, 0, CHUNK_SIZE)
                 if (read > 0) {
                     val payload = if (read == CHUNK_SIZE) buffer else buffer.copyOf(read)
-                    publishAudioChunk(targetDevice, payload)
+                    val app = context.applicationContext as? KL8WallApplication
+                    val mqttConnected = app?.mqttManager?.isConnected() == true
+                    if (mqttConnected) {
+                        publishAudioChunk(targetDevice, payload)
+                    } else {
+                        val delivered = publishAudioChunkFallback?.invoke(targetDevice, payload) != null
+                        if (!delivered) {
+                            Log.w(TAG, "Audio chunk dropped: MQTT offline and no HTTP fallback registered")
+                        }
+                    }
                 } else if (read < 0) {
                     Log.e(TAG, "Error reading audio data: $read")
                     break

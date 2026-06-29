@@ -521,8 +521,8 @@ class BluetoothProxyServer(
                     val resp = HelloResponse.newBuilder()
                         .setApiVersionMajor(1)
                         .setApiVersionMinor(10)
-                        .setServerInfo("ESPHome v2026.1.0")
-                        .setName(settingsRepository.deviceName.value)
+                        .setServerInfo("KL8Wall v${BuildConfig.VERSION_NAME}")
+                        .setName("${settingsRepository.deviceName.value} BLE")
                         .build()
                     sendPacket(2, resp)
                 }
@@ -537,14 +537,15 @@ class BluetoothProxyServer(
                     sendPacket(8, PingResponse.newBuilder().build())
                 }
                 9 -> { // DeviceInfoRequest
+                    val bleDeviceName = "${settingsRepository.deviceName.value} BLE"
                     val resp = DeviceInfoResponse.newBuilder()
-                        .setName(settingsRepository.deviceName.value)
-                        .setFriendlyName(settingsRepository.deviceName.value)
+                        .setName(bleDeviceName)
+                        .setFriendlyName(bleDeviceName)
                         .setMacAddress(getBluetoothMacAddress())
                         .setBluetoothMacAddress(getBluetoothMacAddress())
-                        .setEsphomeVersion("2026.1.0")
-                        .setModel("KL8Wall Proxy")
-                        .setManufacturer("kl8techgroup")
+                        .setEsphomeVersion(BuildConfig.VERSION_NAME)
+                        .setModel("KL8Wall BLE Proxy")
+                        .setManufacturer("KL8TechGroup")
                         .setBluetoothProxyFeatureFlags(127)
                         .build()
                     sendPacket(10, resp)

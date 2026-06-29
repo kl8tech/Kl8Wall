@@ -87,6 +87,8 @@ class KL8WallHttpServer(
         "POST /api/peer/command" -> handlePeerCommand(session)
         "GET /api/peer/public_config" -> handleGetPublicConfig()
         "GET /api/peer/secure_config" -> handleGetSecureConfig(session)
+        "POST /api/intercom/signal" -> handleIntercomSignal(session)
+        "POST /api/intercom/audio" -> handleIntercomAudio(session)
         else -> errorResponse(Response.Status.NOT_FOUND, "Not found")
     }
 
@@ -332,7 +334,7 @@ class KL8WallHttpServer(
         if (verifyBearer(session)) return true
 
         val uri = session.uri ?: ""
-        if (uri == "/api/status" || uri == "/api/peer/relay" || uri == "/api/peer/command" || uri == "/api/peer/public_config" || uri == "/api/peer/secure_config") {
+        if (uri == "/api/status" || uri == "/api/peer/relay" || uri == "/api/peer/command" || uri == "/api/peer/public_config" || uri == "/api/peer/secure_config" || uri == "/api/intercom/signal" || uri == "/api/intercom/audio") {
             val peerManager = KL8WallApplication.instance.peerManager ?: return false
             val expectedAuth = peerManager.getMeshAuthToken()
             val meshAuthHeader = session.headers["x-kl8wall-mesh-auth"]
@@ -496,6 +498,47 @@ class KL8WallHttpServer(
         val files = HashMap<String, String>()
         session.parseBody(files)
         return files["postData"] ?: ""
+    }
+
+    private fun handleIntercomSignal(session: IHTTPSession): Response {
+        val body = readBody(session)
+        val json = try { JSONObject(body) } catch (e: Exception) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Invalid JSON")
+        }
+        val type = json.optString("type", "")
+        val sender = json.optString("sender", "")
+        if (type.isBlank() || sender.isBlank()) {
+            return errorResponse(Response.Status.BAD_REQUEST, "Missing type or sender")
+        }
+        val app = KL8WallApplication.instance
+        val intercom = app.intercomManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Intercom not available")
+        intercom.handleIncomingSignal(type, sender)
+        return corsWrapped(newFixedLengthResponse(Response.Status.OK, JSON_MIME, """{"status":"ok"}"""))
+    }
+
+    private fun handleIntercomAudio(session: IHTTPSession): Response {
+        val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
+        if (contentLength <= 0) {
+            return errorResponse(Response.Status.BAD_REQUEST, "No audio data")
+        }
+        val audioBytes = ByteArray(contentLength)
+        var totalRead = 0
+        try {
+            while (totalRead < contentLength) {
+                val n = session.inputStream.read(audioBytes, totalRead, contentLength - totalRead)
+                if (n == -1) break
+                totalRead += n
+            }
+        } catch (e: Exception) {
+            return errorResponse(Response.Status.INTERNAL_ERROR, "Failed to read audio data")
+        }
+        if (totalRead == 0) return errorResponse(Response.Status.BAD_REQUEST, "Empty audio data")
+        val app = KL8WallApplication.instance
+        val intercom = app.intercomManager
+            ?: return errorResponse(Response.Status.SERVICE_UNAVAILABLE, "Intercom not available")
+        intercom.handleIncomingAudio(if (totalRead == contentLength) audioBytes else audioBytes.copyOf(totalRead))
+        return corsWrapped(newFixedLengthResponse(Response.Status.OK, JSON_MIME, """{"status":"ok"}"""))
     }
 
     private fun successResponse(): Response =
