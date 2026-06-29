@@ -21,6 +21,7 @@ class WebViewClientConfig(
     private val allowedHosts: () -> Set<String>,
     private val ignoreSslErrors: () -> Boolean = { true },
     private val micShimEnabled: () -> Boolean = { true },
+    private val kioskModeEnabled: () -> Boolean = { false },
     private val onPageLoaded: (String) -> Unit = {},
     private val onNavigationBlocked: (String) -> Unit = {},
     private val onError: (Int, String) -> Unit = { _, _ -> },
@@ -64,6 +65,9 @@ class WebViewClientConfig(
         view.evaluateJavascript(DEBUG_BANNER_JS, null)
         if (micShimEnabled()) {
             view.evaluateJavascript(MICROPHONE_SHIM_JS, null)
+        }
+        if (kioskModeEnabled()) {
+            view.evaluateJavascript(KIOSK_MODE_JS, null)
         }
     }
 
@@ -281,6 +285,69 @@ class WebViewClientConfig(
                     }
                 }
             }, 7000);
+        """
+
+        private const val KIOSK_MODE_JS = """
+            (function() {
+                if (window.__kl8wall_kiosk_installed) return;
+                window.__kl8wall_kiosk_installed = true;
+
+                function injectStyle(shadowRoot, css) {
+                    if (!shadowRoot || shadowRoot.__kl8_kiosk) return;
+                    shadowRoot.__kl8_kiosk = true;
+                    var s = document.createElement('style');
+                    s.textContent = css;
+                    shadowRoot.appendChild(s);
+                }
+
+                function tryHideHeader(mainSR) {
+                    var resolver = mainSR.querySelector('partial-panel-resolver');
+                    if (!resolver || !resolver.shadowRoot) return false;
+                    var panel = resolver.shadowRoot.querySelector('ha-panel-lovelace');
+                    if (!panel || !panel.shadowRoot) return false;
+                    var huiRoot = panel.shadowRoot.querySelector('hui-root');
+                    if (!huiRoot || !huiRoot.shadowRoot) return false;
+                    injectStyle(huiRoot.shadowRoot,
+                        '.header { display: none !important; }' +
+                        '.content { padding-top: 0 !important; top: 0 !important; }'
+                    );
+                    return true;
+                }
+
+                function applyKiosk() {
+                    var ha = document.querySelector('home-assistant');
+                    if (!ha || !ha.shadowRoot) return false;
+                    var main = ha.shadowRoot.querySelector('home-assistant-main');
+                    if (!main || !main.shadowRoot) return false;
+                    var mainSR = main.shadowRoot;
+
+                    var drawer = mainSR.querySelector('ha-drawer');
+                    if (drawer && drawer.shadowRoot) {
+                        injectStyle(drawer.shadowRoot,
+                            'ha-sidebar { display: none !important; }' +
+                            ':host { --mdc-drawer-width: 0 !important; }' +
+                            '.mdc-drawer { display: none !important; }' +
+                            '.mdc-drawer-app-content { margin-left: 0 !important; padding-left: 0 !important; }'
+                        );
+                    }
+                    injectStyle(mainSR, 'ha-sidebar { display: none !important; }');
+
+                    if (!tryHideHeader(mainSR)) {
+                        var retries = 0;
+                        var iv = setInterval(function() {
+                            if (tryHideHeader(mainSR) || ++retries > 20) clearInterval(iv);
+                        }, 500);
+                    }
+                    return true;
+                }
+
+                if (!applyKiosk()) {
+                    var retries = 0;
+                    var iv = setInterval(function() {
+                        if (applyKiosk() || ++retries > 30) clearInterval(iv);
+                    }, 500);
+                }
+            })();
         """
 
         private const val MICROPHONE_SHIM_JS = """

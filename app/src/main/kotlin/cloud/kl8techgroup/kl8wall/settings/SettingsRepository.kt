@@ -70,6 +70,35 @@ class SettingsRepository(context: Context) {
     private val _voiceAssistantEnabled = MutableStateFlow(prefs.getBoolean(KEY_VOICE_ASSISTANT_ENABLED, false))
     private val _voiceWakeWord = MutableStateFlow(prefs.getString(KEY_VOICE_WAKE_WORD, "hey wall") ?: "hey wall")
     private val _manualPeers = MutableStateFlow(prefs.getString(KEY_MANUAL_PEERS, "") ?: "")
+    private val _webViewLivenessProbeEnabled = MutableStateFlow(prefs.getBoolean(KEY_WEBVIEW_LIVENESS_PROBE_ENABLED, false))
+    private val _dimScheduleEnabled = MutableStateFlow(prefs.getBoolean(KEY_DIM_SCHEDULE_ENABLED, false))
+    private val _dimScheduleStartHour = MutableStateFlow(prefs.getInt(KEY_DIM_SCHEDULE_START_HOUR, 23))
+    private val _dimScheduleStartMinute = MutableStateFlow(prefs.getInt(KEY_DIM_SCHEDULE_START_MINUTE, 0))
+    private val _dimScheduleEndHour = MutableStateFlow(prefs.getInt(KEY_DIM_SCHEDULE_END_HOUR, 7))
+    private val _dimScheduleEndMinute = MutableStateFlow(prefs.getInt(KEY_DIM_SCHEDULE_END_MINUTE, 0))
+    private val _haKioskMode = MutableStateFlow(prefs.getBoolean(KEY_HA_KIOSK_MODE, false))
+
+    // Feature: HA Event Overlays
+    private val _haEventsEnabled = MutableStateFlow(prefs.getBoolean(KEY_HA_EVENTS_ENABLED, false))
+    private val _haEventEntities = MutableStateFlow(prefs.getString(KEY_HA_EVENT_ENTITIES, "") ?: "")
+
+    // Feature: Context-aware Dashboard Switching
+    private val _dashboardContextEnabled = MutableStateFlow(prefs.getBoolean(KEY_DASHBOARD_CONTEXT_ENABLED, false))
+    private val _dashboardMorningUrl = MutableStateFlow(prefs.getString(KEY_DASHBOARD_MORNING_URL, "") ?: "")
+    private val _dashboardMorningStartHour = MutableStateFlow(prefs.getInt(KEY_DASHBOARD_MORNING_START_HOUR, 6))
+    private val _dashboardMorningEndHour = MutableStateFlow(prefs.getInt(KEY_DASHBOARD_MORNING_END_HOUR, 10))
+    private val _dashboardNightUrl = MutableStateFlow(prefs.getString(KEY_DASHBOARD_NIGHT_URL, "") ?: "")
+    private val _dashboardNightStartHour = MutableStateFlow(prefs.getInt(KEY_DASHBOARD_NIGHT_START_HOUR, 21))
+    private val _dashboardNightEndHour = MutableStateFlow(prefs.getInt(KEY_DASHBOARD_NIGHT_END_HOUR, 23))
+
+    // Feature: Offline voice preference + On-premises LLM
+    private val _voiceOfflinePreferred = MutableStateFlow(prefs.getBoolean(KEY_VOICE_OFFLINE_PREFERRED, true))
+    private val _localLlmEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCAL_LLM_ENABLED, false))
+    private val _localLlmEndpoint = MutableStateFlow(prefs.getString(KEY_LOCAL_LLM_ENDPOINT, "http://192.168.1.1:11434") ?: "http://192.168.1.1:11434")
+    private val _localLlmModel = MutableStateFlow(prefs.getString(KEY_LOCAL_LLM_MODEL, "phi3") ?: "phi3")
+
+    // Feature: ML Kit continuous face presence
+    private val _facePresenceEnabled = MutableStateFlow(prefs.getBoolean(KEY_FACE_PRESENCE_ENABLED, false))
 
     /** Unique device name for MQTT topics and mDNS hostnames. */
     val deviceName: StateFlow<String> = _deviceName.asStateFlow()
@@ -183,6 +212,69 @@ class SettingsRepository(context: Context) {
 
     /** Comma-separated list of manual peer IP addresses (e.g. 192.168.1.100, 192.168.2.105). */
     val manualPeers: StateFlow<String> = _manualPeers.asStateFlow()
+
+    /** Whether to periodically probe the WebView for a dead page and auto-reload. */
+    val webViewLivenessProbeEnabled: StateFlow<Boolean> = _webViewLivenessProbeEnabled.asStateFlow()
+
+    /** Whether the time-based display dim schedule is enabled. */
+    val dimScheduleEnabled: StateFlow<Boolean> = _dimScheduleEnabled.asStateFlow()
+
+    /** Hour component of the dim schedule start time (0-23). */
+    val dimScheduleStartHour: StateFlow<Int> = _dimScheduleStartHour.asStateFlow()
+
+    /** Minute component of the dim schedule start time (0-59). */
+    val dimScheduleStartMinute: StateFlow<Int> = _dimScheduleStartMinute.asStateFlow()
+
+    /** Hour component of the dim schedule end time (0-23). */
+    val dimScheduleEndHour: StateFlow<Int> = _dimScheduleEndHour.asStateFlow()
+
+    /** Minute component of the dim schedule end time (0-59). */
+    val dimScheduleEndMinute: StateFlow<Int> = _dimScheduleEndMinute.asStateFlow()
+
+    /** Whether to hide the HA sidebar and toolbar for a pure dashboard view. */
+    val haKioskMode: StateFlow<Boolean> = _haKioskMode.asStateFlow()
+
+    /** Whether to subscribe to HA state-change events and show native overlays. */
+    val haEventsEnabled: StateFlow<Boolean> = _haEventsEnabled.asStateFlow()
+
+    /** Comma-separated entity IDs (or prefixes ending with *) to watch for event overlays. */
+    val haEventEntities: StateFlow<String> = _haEventEntities.asStateFlow()
+
+    /** Whether to automatically switch dashboards based on time of day. */
+    val dashboardContextEnabled: StateFlow<Boolean> = _dashboardContextEnabled.asStateFlow()
+
+    /** Lovelace URL to show during the morning window. */
+    val dashboardMorningUrl: StateFlow<String> = _dashboardMorningUrl.asStateFlow()
+
+    /** Hour (0-23) when the morning dashboard window starts. */
+    val dashboardMorningStartHour: StateFlow<Int> = _dashboardMorningStartHour.asStateFlow()
+
+    /** Hour (0-23) when the morning dashboard window ends. */
+    val dashboardMorningEndHour: StateFlow<Int> = _dashboardMorningEndHour.asStateFlow()
+
+    /** Lovelace URL to show during the night window. */
+    val dashboardNightUrl: StateFlow<String> = _dashboardNightUrl.asStateFlow()
+
+    /** Hour (0-23) when the night dashboard window starts. */
+    val dashboardNightStartHour: StateFlow<Int> = _dashboardNightStartHour.asStateFlow()
+
+    /** Hour (0-23) when the night dashboard window ends. */
+    val dashboardNightEndHour: StateFlow<Int> = _dashboardNightEndHour.asStateFlow()
+
+    /** Whether the SpeechRecognizer should prefer offline recognition. */
+    val voiceOfflinePreferred: StateFlow<Boolean> = _voiceOfflinePreferred.asStateFlow()
+
+    /** Whether to route voice commands through a local LLM instead of HA Conversation API. */
+    val localLlmEnabled: StateFlow<Boolean> = _localLlmEnabled.asStateFlow()
+
+    /** Base URL of the local Ollama-compatible LLM endpoint. */
+    val localLlmEndpoint: StateFlow<String> = _localLlmEndpoint.asStateFlow()
+
+    /** Model name to use on the local LLM endpoint. */
+    val localLlmModel: StateFlow<String> = _localLlmModel.asStateFlow()
+
+    /** Whether to use ML Kit continuous face detection for presence sensing. */
+    val facePresenceEnabled: StateFlow<Boolean> = _facePresenceEnabled.asStateFlow()
 
     init {
         if (_httpBearerToken.value.isEmpty()) {
@@ -412,6 +504,111 @@ class SettingsRepository(context: Context) {
         _manualPeers.value = peersList
     }
 
+    fun setWebViewLivenessProbeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WEBVIEW_LIVENESS_PROBE_ENABLED, enabled).apply()
+        _webViewLivenessProbeEnabled.value = enabled
+    }
+
+    fun setDimScheduleEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DIM_SCHEDULE_ENABLED, enabled).apply()
+        _dimScheduleEnabled.value = enabled
+    }
+
+    fun setDimScheduleStartHour(hour: Int) {
+        prefs.edit().putInt(KEY_DIM_SCHEDULE_START_HOUR, hour).apply()
+        _dimScheduleStartHour.value = hour
+    }
+
+    fun setDimScheduleStartMinute(minute: Int) {
+        prefs.edit().putInt(KEY_DIM_SCHEDULE_START_MINUTE, minute).apply()
+        _dimScheduleStartMinute.value = minute
+    }
+
+    fun setDimScheduleEndHour(hour: Int) {
+        prefs.edit().putInt(KEY_DIM_SCHEDULE_END_HOUR, hour).apply()
+        _dimScheduleEndHour.value = hour
+    }
+
+    fun setDimScheduleEndMinute(minute: Int) {
+        prefs.edit().putInt(KEY_DIM_SCHEDULE_END_MINUTE, minute).apply()
+        _dimScheduleEndMinute.value = minute
+    }
+
+    fun setHaKioskMode(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HA_KIOSK_MODE, enabled).apply()
+        _haKioskMode.value = enabled
+    }
+
+    fun setHaEventsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HA_EVENTS_ENABLED, enabled).apply()
+        _haEventsEnabled.value = enabled
+    }
+
+    fun setHaEventEntities(entities: String) {
+        prefs.edit().putString(KEY_HA_EVENT_ENTITIES, entities).apply()
+        _haEventEntities.value = entities
+    }
+
+    fun setDashboardContextEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DASHBOARD_CONTEXT_ENABLED, enabled).apply()
+        _dashboardContextEnabled.value = enabled
+    }
+
+    fun setDashboardMorningUrl(url: String) {
+        prefs.edit().putString(KEY_DASHBOARD_MORNING_URL, url).apply()
+        _dashboardMorningUrl.value = url
+    }
+
+    fun setDashboardMorningStartHour(hour: Int) {
+        prefs.edit().putInt(KEY_DASHBOARD_MORNING_START_HOUR, hour).apply()
+        _dashboardMorningStartHour.value = hour
+    }
+
+    fun setDashboardMorningEndHour(hour: Int) {
+        prefs.edit().putInt(KEY_DASHBOARD_MORNING_END_HOUR, hour).apply()
+        _dashboardMorningEndHour.value = hour
+    }
+
+    fun setDashboardNightUrl(url: String) {
+        prefs.edit().putString(KEY_DASHBOARD_NIGHT_URL, url).apply()
+        _dashboardNightUrl.value = url
+    }
+
+    fun setDashboardNightStartHour(hour: Int) {
+        prefs.edit().putInt(KEY_DASHBOARD_NIGHT_START_HOUR, hour).apply()
+        _dashboardNightStartHour.value = hour
+    }
+
+    fun setDashboardNightEndHour(hour: Int) {
+        prefs.edit().putInt(KEY_DASHBOARD_NIGHT_END_HOUR, hour).apply()
+        _dashboardNightEndHour.value = hour
+    }
+
+    fun setVoiceOfflinePreferred(preferred: Boolean) {
+        prefs.edit().putBoolean(KEY_VOICE_OFFLINE_PREFERRED, preferred).apply()
+        _voiceOfflinePreferred.value = preferred
+    }
+
+    fun setLocalLlmEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LOCAL_LLM_ENABLED, enabled).apply()
+        _localLlmEnabled.value = enabled
+    }
+
+    fun setLocalLlmEndpoint(endpoint: String) {
+        prefs.edit().putString(KEY_LOCAL_LLM_ENDPOINT, endpoint).apply()
+        _localLlmEndpoint.value = endpoint
+    }
+
+    fun setLocalLlmModel(model: String) {
+        prefs.edit().putString(KEY_LOCAL_LLM_MODEL, model).apply()
+        _localLlmModel.value = model
+    }
+
+    fun setFacePresenceEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_FACE_PRESENCE_ENABLED, enabled).apply()
+        _facePresenceEnabled.value = enabled
+    }
+
     private fun generateAndStoreHttpBearerToken() {
         val bytes = ByteArray(TOKEN_BYTE_LENGTH)
         SecureRandom().nextBytes(bytes)
@@ -474,6 +671,27 @@ class SettingsRepository(context: Context) {
         private const val KEY_VOICE_ASSISTANT_ENABLED = "voice_assistant_enabled"
         private const val KEY_VOICE_WAKE_WORD = "voice_wake_word"
         private const val KEY_MANUAL_PEERS = "manual_peers"
+        private const val KEY_WEBVIEW_LIVENESS_PROBE_ENABLED = "webview_liveness_probe_enabled"
+        private const val KEY_DIM_SCHEDULE_ENABLED = "dim_schedule_enabled"
+        private const val KEY_DIM_SCHEDULE_START_HOUR = "dim_schedule_start_hour"
+        private const val KEY_DIM_SCHEDULE_START_MINUTE = "dim_schedule_start_minute"
+        private const val KEY_DIM_SCHEDULE_END_HOUR = "dim_schedule_end_hour"
+        private const val KEY_DIM_SCHEDULE_END_MINUTE = "dim_schedule_end_minute"
+        private const val KEY_HA_KIOSK_MODE = "ha_kiosk_mode"
+        private const val KEY_HA_EVENTS_ENABLED = "ha_events_enabled"
+        private const val KEY_HA_EVENT_ENTITIES = "ha_event_entities"
+        private const val KEY_DASHBOARD_CONTEXT_ENABLED = "dashboard_context_enabled"
+        private const val KEY_DASHBOARD_MORNING_URL = "dashboard_morning_url"
+        private const val KEY_DASHBOARD_MORNING_START_HOUR = "dashboard_morning_start_hour"
+        private const val KEY_DASHBOARD_MORNING_END_HOUR = "dashboard_morning_end_hour"
+        private const val KEY_DASHBOARD_NIGHT_URL = "dashboard_night_url"
+        private const val KEY_DASHBOARD_NIGHT_START_HOUR = "dashboard_night_start_hour"
+        private const val KEY_DASHBOARD_NIGHT_END_HOUR = "dashboard_night_end_hour"
+        private const val KEY_VOICE_OFFLINE_PREFERRED = "voice_offline_preferred"
+        private const val KEY_LOCAL_LLM_ENABLED = "local_llm_enabled"
+        private const val KEY_LOCAL_LLM_ENDPOINT = "local_llm_endpoint"
+        private const val KEY_LOCAL_LLM_MODEL = "local_llm_model"
+        private const val KEY_FACE_PRESENCE_ENABLED = "face_presence_enabled"
         private const val DEFAULT_HTTP_PORT = 8127
         private const val TOKEN_BYTE_LENGTH = 32
 

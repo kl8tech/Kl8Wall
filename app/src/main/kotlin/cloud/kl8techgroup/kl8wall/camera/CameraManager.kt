@@ -7,6 +7,8 @@ import android.graphics.BitmapFactory
 import android.media.FaceDetector
 import android.util.Log
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -14,6 +16,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import cloud.kl8techgroup.kl8wall.mqtt.MqttManager
 import cloud.kl8techgroup.kl8wall.settings.SettingsRepository
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
 import java.io.ByteArrayOutputStream
@@ -36,10 +41,24 @@ class CameraManager(
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var periodicJob: Job? = null
     private var streamingJob: Job? = null
+    private var faceAnalysisJob: Job? = null
 
     private var isBound = false
     private var activeImageCapture: ImageCapture? = null
+    private var activeImageAnalysis: ImageAnalysis? = null
     private var activeCameraProvider: ProcessCameraProvider? = null
+
+    private val mlKitFaceDetector by lazy {
+        FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setContourMode(FaceDetectorOptions.CONTOUR_MODE_NONE)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
+                .setMinFaceSize(0.15f)
+                .build()
+        )
+    }
 
     var isStreamingEnabled = false
         set(value) {
@@ -80,6 +99,13 @@ class CameraManager(
             }
         }
 
+        // Observe face presence setting for ML Kit continuous detection
+        scope.launch {
+            settingsRepository.facePresenceEnabled.collectLatest { enabled ->
+                if (enabled) startFaceAnalysis() else stopFaceAnalysis()
+            }
+        }
+
         // Listen to low power mode flow to throttle camera usage
         scope.launch {
             val app = context.applicationContext as? cloud.kl8techgroup.kl8wall.KL8WallApplication
@@ -109,8 +135,84 @@ class CameraManager(
         Log.d(TAG, "Stopping CameraManager...")
         stopPeriodicCapture()
         stopStreaming()
+        stopFaceAnalysis()
+        mlKitFaceDetector.close()
         scope.cancel()
         cameraExecutor.shutdown()
+    }
+
+    private fun startFaceAnalysis() {
+        stopFaceAnalysis()
+        if (isLowPowerMode()) return
+        Log.i(TAG, "Starting ML Kit continuous face analysis")
+        faceAnalysisJob = scope.launch {
+            ensureFaceAnalysisBound()
+        }
+    }
+
+    private fun stopFaceAnalysis() {
+        faceAnalysisJob?.cancel()
+        faceAnalysisJob = null
+        ContextCompat.getMainExecutor(context).execute {
+            try {
+                activeImageAnalysis?.clearAnalyzer()
+                activeImageAnalysis = null
+                checkCameraRelease()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error stopping face analysis", e)
+            }
+        }
+    }
+
+    private suspend fun ensureFaceAnalysisBound() = withContext(Dispatchers.Main) {
+        val owner = lifecycleOwner ?: return@withContext
+        val provider = activeCameraProvider ?: suspendCancellableCoroutine { cont ->
+            val future = ProcessCameraProvider.getInstance(context)
+            future.addListener({
+                try { cont.resume(future.get()) } catch (e: Exception) { cont.resumeWithException(e) }
+            }, ContextCompat.getMainExecutor(context))
+        }
+        activeCameraProvider = provider
+
+        val analysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build()
+            .also { it.setAnalyzer(cameraExecutor, ::analyzeFaceFrame) }
+
+        try {
+            val selector = CameraSelector.DEFAULT_FRONT_CAMERA
+            val useCases = buildList {
+                add(analysis)
+                activeImageCapture?.let { add(it) }
+            }
+            provider.unbindAll()
+            provider.bindToLifecycle(owner, selector, *useCases.toTypedArray())
+            activeImageAnalysis = analysis
+            isBound = true
+            Log.i(TAG, "ML Kit ImageAnalysis bound to camera")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to bind ImageAnalysis", e)
+        }
+    }
+
+    @androidx.annotation.OptIn(ExperimentalGetImage::class)
+    private fun analyzeFaceFrame(imageProxy: ImageProxy) {
+        val mediaImage = imageProxy.image
+        if (mediaImage == null) {
+            imageProxy.close()
+            return
+        }
+        val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+        mlKitFaceDetector.process(inputImage)
+            .addOnSuccessListener { faces ->
+                if (faces.isNotEmpty()) {
+                    Log.d(TAG, "ML Kit: ${faces.size} face(s) detected")
+                    onFaceDetected?.invoke(true)
+                }
+            }
+            .addOnCompleteListener {
+                imageProxy.close()
+            }
     }
 
     fun updateLifecycleOwner(newOwner: androidx.lifecycle.LifecycleOwner) {
@@ -266,7 +368,7 @@ class CameraManager(
     }
 
     private fun checkCameraRelease() {
-        if (streamingJob == null && periodicJob == null) {
+        if (streamingJob == null && periodicJob == null && faceAnalysisJob == null) {
             unbindCamera()
         }
     }

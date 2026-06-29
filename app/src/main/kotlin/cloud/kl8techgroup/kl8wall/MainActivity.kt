@@ -46,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.Text
 import cloud.kl8techgroup.kl8wall.cast.CastManager
 import cloud.kl8techgroup.kl8wall.cast.CastOverlay
+import cloud.kl8techgroup.kl8wall.ha.HaEventAlert
 import cloud.kl8techgroup.kl8wall.kiosk.HotCornerDetector
 import cloud.kl8techgroup.kl8wall.kiosk.KioskLockManager
 import cloud.kl8techgroup.kl8wall.kiosk.PasscodeLockManager
@@ -126,6 +127,10 @@ class MainActivity : ComponentActivity() {
     @Volatile
     private var currentWebViewUrl: String = ""
     private var webViewRecoveryJob: kotlinx.coroutines.Job? = null
+    private var livenessProbeJob: kotlinx.coroutines.Job? = null
+    private var dimScheduleJob: kotlinx.coroutines.Job? = null
+    @Volatile
+    private var isDimScheduleActive = false
     @Volatile
     private var isWebViewError = false
     @Suppress("DEPRECATION")
@@ -221,6 +226,20 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             app.settingsRepository.screenAlwaysOn.collect { alwaysOn ->
                 updateScreenAlwaysOnFlags(alwaysOn)
+            }
+        }
+
+        // Start/stop liveness probe based on setting
+        lifecycleScope.launch {
+            app.settingsRepository.webViewLivenessProbeEnabled.collect { enabled ->
+                if (enabled) startLivenessProbeLoop() else stopLivenessProbeLoop()
+            }
+        }
+
+        // Start/stop dim schedule based on setting
+        lifecycleScope.launch {
+            app.settingsRepository.dimScheduleEnabled.collect { enabled ->
+                if (enabled) startDimScheduleLoop() else stopDimScheduleLoop()
             }
         }
 
@@ -474,9 +493,10 @@ class MainActivity : ComponentActivity() {
         if (webViewRecoveryJob?.isActive == true) return
         Log.i("MainActivity", "Starting WebView recovery loop...")
         webViewRecoveryJob = lifecycleScope.launch {
-            delay(15000)
+            var backoffMs = 5000L
+            delay(backoffMs)
             while (isWebViewError) {
-                Log.i("MainActivity", "WebView in error state, attempting automatic reload...")
+                Log.i("MainActivity", "WebView in error state, attempting reload (next backoff ${backoffMs / 1000}s)...")
                 kioskWebView?.let { wv ->
                     wv.post {
                         val app = application as KL8WallApplication
@@ -498,7 +518,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                delay(15000)
+                backoffMs = minOf(backoffMs * 2, 60000L)
+                delay(backoffMs)
             }
         }
     }
@@ -509,6 +530,101 @@ class MainActivity : ComponentActivity() {
             webViewRecoveryJob?.cancel()
             webViewRecoveryJob = null
         }
+    }
+
+    private fun startLivenessProbeLoop() {
+        if (livenessProbeJob?.isActive == true) return
+        Log.i("MainActivity", "Starting WebView liveness probe")
+        livenessProbeJob = lifecycleScope.launch {
+            delay(60000)
+            while (true) {
+                if (!isWebViewError) {
+                    val deferred = kotlinx.coroutines.CompletableDeferred<String?>()
+                    mainHandler.post {
+                        val wv = kioskWebView
+                        if (wv != null) {
+                            wv.evaluateJavascript(
+                                "(function(){ try { return document.querySelector('home-assistant') ? 'ok' : 'missing'; } catch(e) { return 'err'; } })()"
+                            ) { value -> deferred.complete(value) }
+                        } else {
+                            deferred.complete(null)
+                        }
+                    }
+                    val result = kotlinx.coroutines.withTimeoutOrNull(5000) { deferred.await() }
+                    if (result == "\"missing\"") {
+                        Log.w("MainActivity", "Liveness probe: home-assistant element missing, reloading")
+                        mainHandler.post { kioskWebView?.reload() }
+                    }
+                }
+                delay(60000)
+            }
+        }
+    }
+
+    private fun stopLivenessProbeLoop() {
+        livenessProbeJob?.cancel()
+        livenessProbeJob = null
+    }
+
+    private fun startDimScheduleLoop() {
+        if (dimScheduleJob?.isActive == true) return
+        Log.i("MainActivity", "Starting dim schedule loop")
+        dimScheduleJob = lifecycleScope.launch {
+            while (true) {
+                val app = application as KL8WallApplication
+                val settings = app.settingsRepository
+                val cal = java.util.Calendar.getInstance()
+                val nowMins = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+                val startMins = settings.dimScheduleStartHour.value * 60 + settings.dimScheduleStartMinute.value
+                val endMins = settings.dimScheduleEndHour.value * 60 + settings.dimScheduleEndMinute.value
+                val inWindow = if (startMins < endMins) nowMins in startMins until endMins
+                               else nowMins >= startMins || nowMins < endMins
+
+                if (inWindow && !isDimScheduleActive) {
+                    isDimScheduleActive = true
+                    Log.i("MainActivity", "Dim schedule: entering dim window, setting brightness to min")
+                    mainHandler.post { app.brightnessController.setBrightness(settings.minBrightnessPercent.value) }
+                } else if (!inWindow && isDimScheduleActive) {
+                    isDimScheduleActive = false
+                    Log.i("MainActivity", "Dim schedule: exiting dim window, restoring brightness")
+                    mainHandler.post {
+                        val minPct = settings.minBrightnessPercent.value
+                        val manualPct = settings.manualBrightnessPercent.value
+                        val targetBrightness = if (settings.autoBrightnessEnabled.value) {
+                            app.presenceSensorManager?.mapLuxToBrightness(
+                                app.presenceSensorManager?.latestLux ?: 0f, minPct
+                            ) ?: manualPct
+                        } else {
+                            manualPct
+                        }
+                        app.brightnessController.setBrightness(targetBrightness)
+                    }
+                }
+                delay(60000)
+            }
+        }
+    }
+
+    private fun stopDimScheduleLoop() {
+        if (isDimScheduleActive) {
+            isDimScheduleActive = false
+            val app = application as KL8WallApplication
+            val settings = app.settingsRepository
+            mainHandler.post {
+                val minPct = settings.minBrightnessPercent.value
+                val manualPct = settings.manualBrightnessPercent.value
+                val targetBrightness = if (settings.autoBrightnessEnabled.value) {
+                    app.presenceSensorManager?.mapLuxToBrightness(
+                        app.presenceSensorManager?.latestLux ?: 0f, minPct
+                    ) ?: manualPct
+                } else {
+                    manualPct
+                }
+                app.brightnessController.setBrightness(targetBrightness)
+            }
+        }
+        dimScheduleJob?.cancel()
+        dimScheduleJob = null
     }
 
     fun handlePageLoadStatus(url: String, success: Boolean) {
@@ -846,14 +962,18 @@ private fun KL8WallScreen(
     var passcodeLockManager by remember { mutableStateOf<PasscodeLockManager?>(app.passcodeLockManager) }
     var castManager by remember { mutableStateOf<CastManager?>(app.castManager) }
     var voiceAssistantManager by remember { mutableStateOf<cloud.kl8techgroup.kl8wall.voice.VoiceAssistantManager?>(app.voiceAssistantManager) }
+    var haEventManager by remember { mutableStateOf<cloud.kl8techgroup.kl8wall.ha.HaEventManager?>(app.haEventManager) }
     LaunchedEffect(Unit) {
         while (passcodeLockManager == null || castManager == null || voiceAssistantManager == null) {
             passcodeLockManager = app.passcodeLockManager
             castManager = app.castManager
             voiceAssistantManager = app.voiceAssistantManager
+            haEventManager = app.haEventManager
             delay(500)
         }
     }
+
+    val haEventAlert by (haEventManager?.activeAlert?.collectAsState() ?: remember { mutableStateOf(null) })
 
     val isLocked by (passcodeLockManager?.isLocked?.collectAsState() ?: remember { mutableStateOf(false) })
     val currentCastUrl by (castManager?.castUrl?.collectAsState() ?: remember { mutableStateOf(null) })
@@ -942,6 +1062,16 @@ private fun KL8WallScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+                }
+
+                haEventAlert?.let { alert ->
+                    HaEventOverlay(
+                        alert = alert,
+                        onDismiss = { haEventManager?.dismissAlert() },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                    )
                 }
 
                 passcodeLockManager?.let { lockMgr ->
@@ -1105,6 +1235,7 @@ private fun KioskWebViewContainer(
                         allowedHosts = { viewModel.allowedHosts.value },
                         ignoreSslErrors = { settingsRepo.ignoreSslErrors.value },
                         micShimEnabled = { settingsRepo.micShimEnabled.value },
+                        kioskModeEnabled = { settingsRepo.haKioskMode.value },
                         onPageLoaded = onUrlChanged,
                         onNavigationBlocked = onNavigationBlocked,
                         onError = onError,
@@ -1561,6 +1692,48 @@ fun WaveformVisualizer() {
                         shape = RoundedCornerShape(3.dp)
                     )
             )
+        }
+    }
+}
+
+@Composable
+fun HaEventOverlay(
+    alert: HaEventAlert,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = alert.friendlyName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = alert.newState,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (alert.oldState.isNotBlank()) {
+                Text(
+                    text = "was ${alert.oldState}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Dismiss") }
         }
     }
 }

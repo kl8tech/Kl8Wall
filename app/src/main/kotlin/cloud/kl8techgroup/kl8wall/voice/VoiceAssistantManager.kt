@@ -329,7 +329,11 @@ class VoiceAssistantManager(
         _state.value = VoiceState.PROCESSING_COMMAND
 
         scope.launch(Dispatchers.IO) {
-            val responseText = processVoiceCommandWithHa(text)
+            val responseText = if (settingsRepository.localLlmEnabled.value) {
+                processVoiceCommandWithLlm(text)
+            } else {
+                processVoiceCommandWithHa(text)
+            }
             
             withContext(Dispatchers.Main) {
                 _assistantResponseText.value = responseText
@@ -357,6 +361,9 @@ class VoiceAssistantManager(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            if (settingsRepository.voiceOfflinePreferred.value) {
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            }
         }
     }
 
@@ -403,6 +410,58 @@ class VoiceAssistantManager(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to wake screen for voice assistant", e)
+        }
+    }
+
+    private suspend fun processVoiceCommandWithLlm(command: String): String = withContext(Dispatchers.IO) {
+        val endpoint = settingsRepository.localLlmEndpoint.value.trimEnd('/')
+        val model = settingsRepository.localLlmModel.value.trim()
+        if (endpoint.isBlank() || model.isBlank()) {
+            return@withContext processVoiceCommandWithHa(command)
+        }
+
+        val systemPrompt = "You are a voice controller for a Home Assistant smart home. " +
+            "The user gives you a brief command from a wall tablet. " +
+            "Respond with a short spoken sentence acknowledging the command. " +
+            "Keep it under 15 words. Do not explain or ask questions."
+
+        val body = JSONObject().apply {
+            put("model", model)
+            put("prompt", "$systemPrompt\n\nUser: $command\nAssistant:")
+            put("stream", false)
+            put("options", JSONObject().apply { put("num_predict", 60) })
+        }
+
+        var connection: HttpURLConnection? = null
+        return@withContext try {
+            val url = URL("$endpoint/api/generate")
+            connection = url.openConnection() as HttpURLConnection
+            if (connection is javax.net.ssl.HttpsURLConnection) {
+                connection.sslSocketFactory = SslUtil.tlsSocketFactory
+            }
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 15000
+            connection.readTimeout = 30000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+
+            connection.outputStream.use { os ->
+                OutputStreamWriter(os, "UTF-8").use { w -> w.write(body.toString()); w.flush() }
+            }
+
+            if (connection.responseCode in 200..299) {
+                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                val response = JSONObject(text).optString("response", "").trim()
+                if (response.isNotBlank()) response else processVoiceCommandWithHa(command)
+            } else {
+                Log.w(TAG, "LLM endpoint returned ${connection.responseCode}, falling back to HA")
+                processVoiceCommandWithHa(command)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "LLM request failed, falling back to HA: ${e.message}")
+            processVoiceCommandWithHa(command)
+        } finally {
+            connection?.disconnect()
         }
     }
 

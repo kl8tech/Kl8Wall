@@ -51,7 +51,28 @@ class SettingsViewModel(
     val voiceAssistantEnabled: StateFlow<Boolean> = repository.voiceAssistantEnabled
     val voiceWakeWord: StateFlow<String> = repository.voiceWakeWord
     val manualPeers: StateFlow<String> = repository.manualPeers
-    
+    val webViewLivenessProbeEnabled: StateFlow<Boolean> = repository.webViewLivenessProbeEnabled
+    val dimScheduleEnabled: StateFlow<Boolean> = repository.dimScheduleEnabled
+    val dimScheduleStartHour: StateFlow<Int> = repository.dimScheduleStartHour
+    val dimScheduleStartMinute: StateFlow<Int> = repository.dimScheduleStartMinute
+    val dimScheduleEndHour: StateFlow<Int> = repository.dimScheduleEndHour
+    val dimScheduleEndMinute: StateFlow<Int> = repository.dimScheduleEndMinute
+    val haKioskMode: StateFlow<Boolean> = repository.haKioskMode
+    val haEventsEnabled: StateFlow<Boolean> = repository.haEventsEnabled
+    val haEventEntities: StateFlow<String> = repository.haEventEntities
+    val dashboardContextEnabled: StateFlow<Boolean> = repository.dashboardContextEnabled
+    val dashboardMorningUrl: StateFlow<String> = repository.dashboardMorningUrl
+    val dashboardMorningStartHour: StateFlow<Int> = repository.dashboardMorningStartHour
+    val dashboardMorningEndHour: StateFlow<Int> = repository.dashboardMorningEndHour
+    val dashboardNightUrl: StateFlow<String> = repository.dashboardNightUrl
+    val dashboardNightStartHour: StateFlow<Int> = repository.dashboardNightStartHour
+    val dashboardNightEndHour: StateFlow<Int> = repository.dashboardNightEndHour
+    val voiceOfflinePreferred: StateFlow<Boolean> = repository.voiceOfflinePreferred
+    val localLlmEnabled: StateFlow<Boolean> = repository.localLlmEnabled
+    val localLlmEndpoint: StateFlow<String> = repository.localLlmEndpoint
+    val localLlmModel: StateFlow<String> = repository.localLlmModel
+    val facePresenceEnabled: StateFlow<Boolean> = repository.facePresenceEnabled
+
     val deviceName: StateFlow<String> = repository.deviceName
     val mqttEnabled: StateFlow<Boolean> = repository.mqttEnabled
     val mqttBroker: StateFlow<String> = repository.mqttBroker
@@ -93,7 +114,27 @@ class SettingsViewModel(
     fun setVoiceAssistantEnabled(enabled: Boolean) = repository.setVoiceAssistantEnabled(enabled)
     fun setVoiceWakeWord(wakeWord: String) = repository.setVoiceWakeWord(wakeWord)
     fun setManualPeers(peersList: String) = repository.setManualPeers(peersList)
-
+    fun setWebViewLivenessProbeEnabled(enabled: Boolean) = repository.setWebViewLivenessProbeEnabled(enabled)
+    fun setDimScheduleEnabled(enabled: Boolean) = repository.setDimScheduleEnabled(enabled)
+    fun setDimScheduleStartHour(hour: Int) = repository.setDimScheduleStartHour(hour)
+    fun setDimScheduleStartMinute(minute: Int) = repository.setDimScheduleStartMinute(minute)
+    fun setDimScheduleEndHour(hour: Int) = repository.setDimScheduleEndHour(hour)
+    fun setDimScheduleEndMinute(minute: Int) = repository.setDimScheduleEndMinute(minute)
+    fun setHaKioskMode(enabled: Boolean) = repository.setHaKioskMode(enabled)
+    fun setHaEventsEnabled(enabled: Boolean) = repository.setHaEventsEnabled(enabled)
+    fun setHaEventEntities(entities: String) = repository.setHaEventEntities(entities)
+    fun setDashboardContextEnabled(enabled: Boolean) = repository.setDashboardContextEnabled(enabled)
+    fun setDashboardMorningUrl(url: String) = repository.setDashboardMorningUrl(url)
+    fun setDashboardMorningStartHour(hour: Int) = repository.setDashboardMorningStartHour(hour)
+    fun setDashboardMorningEndHour(hour: Int) = repository.setDashboardMorningEndHour(hour)
+    fun setDashboardNightUrl(url: String) = repository.setDashboardNightUrl(url)
+    fun setDashboardNightStartHour(hour: Int) = repository.setDashboardNightStartHour(hour)
+    fun setDashboardNightEndHour(hour: Int) = repository.setDashboardNightEndHour(hour)
+    fun setVoiceOfflinePreferred(preferred: Boolean) = repository.setVoiceOfflinePreferred(preferred)
+    fun setLocalLlmEnabled(enabled: Boolean) = repository.setLocalLlmEnabled(enabled)
+    fun setLocalLlmEndpoint(endpoint: String) = repository.setLocalLlmEndpoint(endpoint)
+    fun setLocalLlmModel(model: String) = repository.setLocalLlmModel(model)
+    fun setFacePresenceEnabled(enabled: Boolean) = repository.setFacePresenceEnabled(enabled)
 
     fun setStartUrl(url: String) = repository.setStartUrl(url)
 

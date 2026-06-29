@@ -98,7 +98,13 @@ class KL8WallApplication : Application() {
         private set
     var voiceAssistantManager: cloud.kl8techgroup.kl8wall.voice.VoiceAssistantManager? = null
         private set
+    var haEventManager: cloud.kl8techgroup.kl8wall.ha.HaEventManager? = null
+        private set
+    var dashboardContextManager: cloud.kl8techgroup.kl8wall.ha.DashboardContextManager? = null
+        private set
     private var voiceAssistantJob: kotlinx.coroutines.Job? = null
+    private var haEventsJob: kotlinx.coroutines.Job? = null
+    private var dashboardContextJob: kotlinx.coroutines.Job? = null
 
     var isAppInForeground: Boolean = false
         private set
@@ -283,8 +289,11 @@ class KL8WallApplication : Application() {
                         otaManager.checkForUpdates(forceInstall = false)
 
                         deviceController?.let { devCtrl ->
-                            android.util.Log.i("KL8Wall", "Network connection available, reloading configured start URL...")
-                            delay(1000)
+                            android.util.Log.i("KL8Wall", "Network connection available, waiting for HTTP server then reloading start URL...")
+                            for (i in 1..6) {
+                                if (boundIpAddress != null) break
+                                delay(500)
+                            }
                             devCtrl.navigate(settingsRepository.startUrl.value)
                         }
                     }
@@ -320,6 +329,12 @@ class KL8WallApplication : Application() {
         }
         intercom.onStateChanged = { isRecording ->
             mqttManager?.publishIntercomActiveState(isRecording)
+        }
+        intercom.publishSignalingFallback = { target, type, sender ->
+            peerManager?.sendIntercomSignal(target, type, sender)
+        }
+        intercom.publishAudioChunkFallback = { target, bytes ->
+            peerManager?.sendAudioChunkHttp(target, bytes)
         }
         intercomManager = intercom
 
@@ -362,11 +377,25 @@ class KL8WallApplication : Application() {
         voiceAssistantManager = voiceAssistant
         voiceAssistantJob = serverScope.launch(Dispatchers.Main) {
             settingsRepository.voiceAssistantEnabled.collect { enabled ->
-                if (enabled) {
-                    voiceAssistant.start()
-                } else {
-                    voiceAssistant.stop()
-                }
+                if (enabled) voiceAssistant.start() else voiceAssistant.stop()
+            }
+        }
+
+        val haEvents = cloud.kl8techgroup.kl8wall.ha.HaEventManager(settingsRepository, okHttpClient)
+        haEventManager = haEvents
+        haEventsJob = serverScope.launch {
+            settingsRepository.haEventsEnabled.collect { enabled ->
+                if (enabled) haEvents.start() else haEvents.stop()
+            }
+        }
+
+        val dashCtx = cloud.kl8techgroup.kl8wall.ha.DashboardContextManager(settingsRepository) { url ->
+            deviceController?.navigate(url)
+        }
+        dashboardContextManager = dashCtx
+        dashboardContextJob = serverScope.launch {
+            settingsRepository.dashboardContextEnabled.collect { enabled ->
+                if (enabled) dashCtx.start() else dashCtx.stop()
             }
         }
     }
@@ -397,6 +426,16 @@ class KL8WallApplication : Application() {
         voiceAssistantJob = null
         voiceAssistantManager?.stop()
         voiceAssistantManager = null
+
+        haEventsJob?.cancel()
+        haEventsJob = null
+        haEventManager?.stop()
+        haEventManager = null
+
+        dashboardContextJob?.cancel()
+        dashboardContextJob = null
+        dashboardContextManager?.stop()
+        dashboardContextManager = null
 
         batterySaverManager?.stop()
         batterySaverManager = null

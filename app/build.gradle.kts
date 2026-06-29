@@ -16,8 +16,8 @@ android {
         applicationId = "cloud.kl8techgroup.kl8wall"
         minSdk = 24
         targetSdk = 35
-        versionCode = 57
-        versionName = "2.0.55"
+        versionCode = 58
+        versionName = "2.0.56"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -159,6 +159,9 @@ dependencies {
     // Protobuf Lite
     implementation(libs.protobuf.javalite)
     implementation(libs.protobuf.kotlin.lite)
+
+    // ML Kit — bundled (no GMS required)
+    implementation(libs.mlkit.face.detection)
 
     // Debug
     debugImplementation(libs.compose.ui.tooling)

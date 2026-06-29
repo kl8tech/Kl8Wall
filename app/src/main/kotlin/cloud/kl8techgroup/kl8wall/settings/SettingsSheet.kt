@@ -218,7 +218,7 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val tabs = listOf("General", "Hardware", "MQTT", "Mesh / P2P")
+                val tabs = listOf("General", "Hardware", "MQTT", "Mesh / P2P", "Intelligence")
                 tabs.forEachIndexed { index, title ->
                     val isSelected = activeTab == index
                     Box(
@@ -265,6 +265,13 @@ fun SettingsSheet(viewModel: SettingsViewModel, onDismiss: () -> Unit) {
                     }
                     3 -> { // Mesh / P2P
                         MeshNetworkCard(viewModel)
+                    }
+                    4 -> { // Intelligence
+                        HaEventOverlaysCard(viewModel)
+                        DashboardContextCard(viewModel)
+                        FacePresenceCard(viewModel)
+                        VoiceEnhancementsCard(viewModel)
+                        LocalLlmCard(viewModel)
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -331,6 +338,13 @@ private fun DisplaySleepCard(viewModel: SettingsViewModel) {
     val presenceSensorEnabled by viewModel.presenceSensorEnabled.collectAsState()
     val presenceTimeoutSeconds by viewModel.presenceTimeoutSeconds.collectAsState()
     val mediaPlaybackRequiresGesture by viewModel.mediaPlaybackRequiresGesture.collectAsState()
+    val webViewLivenessProbeEnabled by viewModel.webViewLivenessProbeEnabled.collectAsState()
+    val dimScheduleEnabled by viewModel.dimScheduleEnabled.collectAsState()
+    val dimScheduleStartHour by viewModel.dimScheduleStartHour.collectAsState()
+    val dimScheduleStartMinute by viewModel.dimScheduleStartMinute.collectAsState()
+    val dimScheduleEndHour by viewModel.dimScheduleEndHour.collectAsState()
+    val dimScheduleEndMinute by viewModel.dimScheduleEndMinute.collectAsState()
+    val haKioskMode by viewModel.haKioskMode.collectAsState()
 
     SettingsCard(title = "Display & Sleep") {
         SettingsToggleRow(
@@ -383,6 +397,66 @@ private fun DisplaySleepCard(viewModel: SettingsViewModel) {
             description = "Pause WebView and dim display completely when absent AND dark",
             checked = lowPowerModeEnabled,
             onCheckedChange = viewModel::setLowPowerModeEnabled
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+        SettingsToggleRow(
+            title = "WebView Liveness Probe",
+            description = "Reload the page automatically if Home Assistant stops responding (checks every 60s)",
+            checked = webViewLivenessProbeEnabled,
+            onCheckedChange = viewModel::setWebViewLivenessProbeEnabled
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+        SettingsToggleRow(
+            title = "Timed Dim Schedule",
+            description = "Automatically dim the screen to minimum brightness between two times each day",
+            checked = dimScheduleEnabled,
+            onCheckedChange = viewModel::setDimScheduleEnabled
+        )
+
+        if (dimScheduleEnabled) {
+            val startLabel = String.format("%02d:%02d", dimScheduleStartHour, dimScheduleStartMinute)
+            val endLabel = String.format("%02d:%02d", dimScheduleEndHour, dimScheduleEndMinute)
+            SettingsSliderRow(
+                title = "Dim Start — Hour",
+                valueText = startLabel,
+                value = dimScheduleStartHour.toFloat(),
+                onValueChange = { viewModel.setDimScheduleStartHour(it.toInt()) },
+                valueRange = 0f..23f
+            )
+            SettingsSliderRow(
+                title = "Dim Start — Minute",
+                valueText = startLabel,
+                value = dimScheduleStartMinute.toFloat(),
+                onValueChange = { viewModel.setDimScheduleStartMinute(it.toInt()) },
+                valueRange = 0f..59f
+            )
+            SettingsSliderRow(
+                title = "Dim End — Hour",
+                valueText = endLabel,
+                value = dimScheduleEndHour.toFloat(),
+                onValueChange = { viewModel.setDimScheduleEndHour(it.toInt()) },
+                valueRange = 0f..23f
+            )
+            SettingsSliderRow(
+                title = "Dim End — Minute",
+                valueText = endLabel,
+                value = dimScheduleEndMinute.toFloat(),
+                onValueChange = { viewModel.setDimScheduleEndMinute(it.toInt()) },
+                valueRange = 0f..59f
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+        SettingsToggleRow(
+            title = "HA Kiosk Mode",
+            description = "Hide the Home Assistant sidebar and toolbar for a pure dashboard view",
+            checked = haKioskMode,
+            onCheckedChange = viewModel::setHaKioskMode
         )
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
@@ -1930,6 +2004,218 @@ private fun SetupButtons(onConnect: () -> Unit, onSkip: () -> Unit) {
     ) {
         Button(onClick = onConnect, modifier = Modifier.weight(1f)) { Text("Connect") }
         OutlinedButton(onClick = onSkip, modifier = Modifier.width(120.dp)) { Text("Skip") }
+    }
+}
+
+// ─── Intelligence Tab Cards ───────────────────────────────────────────────────
+
+@Composable
+private fun HaEventOverlaysCard(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val app = context.applicationContext as? KL8WallApplication
+    val enabled by viewModel.haEventsEnabled.collectAsState()
+    val haEventEntitiesValue by viewModel.haEventEntities.collectAsState()
+    var editEntities by remember(haEventEntitiesValue) { mutableStateOf(haEventEntitiesValue) }
+
+    SettingsCard(title = "HA Event Overlays") {
+        SettingsToggleRow(
+            title = "Enable Event Overlays",
+            description = "Show a native overlay card when watched entity states change",
+            checked = enabled,
+            onCheckedChange = { on ->
+                viewModel.setHaEventsEnabled(on)
+                if (on) app?.haEventManager?.start() else app?.haEventManager?.stop()
+            }
+        )
+
+        if (enabled) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            OutlinedTextField(
+                value = editEntities,
+                onValueChange = { editEntities = it },
+                label = { Text("Watched Entities") },
+                placeholder = { Text("binary_sensor.doorbell,alarm_control_panel.*") },
+                supportingText = { Text("Comma-separated entity IDs or prefixes ending with *") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(
+                onClick = {
+                    viewModel.setHaEventEntities(editEntities.trim())
+                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save Entity List") }
+        }
+    }
+}
+
+@Composable
+private fun DashboardContextCard(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val app = context.applicationContext as? KL8WallApplication
+    val enabled by viewModel.dashboardContextEnabled.collectAsState()
+    val morningStartHour by viewModel.dashboardMorningStartHour.collectAsState()
+    val morningEndHour by viewModel.dashboardMorningEndHour.collectAsState()
+    val nightStartHour by viewModel.dashboardNightStartHour.collectAsState()
+    val nightEndHour by viewModel.dashboardNightEndHour.collectAsState()
+    val morningUrlValue by viewModel.dashboardMorningUrl.collectAsState()
+    val nightUrlValue by viewModel.dashboardNightUrl.collectAsState()
+    var editMorningUrl by remember(morningUrlValue) { mutableStateOf(morningUrlValue) }
+    var editNightUrl by remember(nightUrlValue) { mutableStateOf(nightUrlValue) }
+
+    SettingsCard(title = "Context Dashboard Switching") {
+        SettingsToggleRow(
+            title = "Enable Context Switching",
+            description = "Automatically navigate to different dashboards based on time of day",
+            checked = enabled,
+            onCheckedChange = { on ->
+                viewModel.setDashboardContextEnabled(on)
+                if (on) app?.dashboardContextManager?.start() else app?.dashboardContextManager?.stop()
+            }
+        )
+
+        if (enabled) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+            OutlinedTextField(
+                value = editMorningUrl,
+                onValueChange = { editMorningUrl = it },
+                label = { Text("Morning Dashboard URL") },
+                placeholder = { Text("http://homeassistant.local:8123/lovelace/morning") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            SettingsSliderRow(
+                title = "Morning Start",
+                valueText = String.format("%02d:00", morningStartHour),
+                value = morningStartHour.toFloat(),
+                onValueChange = { viewModel.setDashboardMorningStartHour(it.toInt()) },
+                valueRange = 0f..23f
+            )
+            SettingsSliderRow(
+                title = "Morning End",
+                valueText = String.format("%02d:00", morningEndHour),
+                value = morningEndHour.toFloat(),
+                onValueChange = { viewModel.setDashboardMorningEndHour(it.toInt()) },
+                valueRange = 0f..23f
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+            OutlinedTextField(
+                value = editNightUrl,
+                onValueChange = { editNightUrl = it },
+                label = { Text("Night Dashboard URL") },
+                placeholder = { Text("http://homeassistant.local:8123/lovelace/night") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            SettingsSliderRow(
+                title = "Night Start",
+                valueText = String.format("%02d:00", nightStartHour),
+                value = nightStartHour.toFloat(),
+                onValueChange = { viewModel.setDashboardNightStartHour(it.toInt()) },
+                valueRange = 0f..23f
+            )
+            SettingsSliderRow(
+                title = "Night End",
+                valueText = String.format("%02d:00", nightEndHour),
+                value = nightEndHour.toFloat(),
+                onValueChange = { viewModel.setDashboardNightEndHour(it.toInt()) },
+                valueRange = 0f..23f
+            )
+
+            Button(
+                onClick = {
+                    viewModel.setDashboardMorningUrl(editMorningUrl.trim())
+                    viewModel.setDashboardNightUrl(editNightUrl.trim())
+                    app?.dashboardContextManager?.forceEvaluate()
+                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save & Evaluate Now") }
+        }
+    }
+}
+
+@Composable
+private fun FacePresenceCard(viewModel: SettingsViewModel) {
+    val enabled by viewModel.facePresenceEnabled.collectAsState()
+
+    SettingsCard(title = "ML Kit Face Presence") {
+        SettingsToggleRow(
+            title = "Continuous Face Detection",
+            description = "Use ML Kit to continuously detect faces for smarter presence sensing (uses front camera)",
+            checked = enabled,
+            onCheckedChange = viewModel::setFacePresenceEnabled
+        )
+    }
+}
+
+@Composable
+private fun VoiceEnhancementsCard(viewModel: SettingsViewModel) {
+    val offlinePreferred by viewModel.voiceOfflinePreferred.collectAsState()
+
+    SettingsCard(title = "Voice Enhancements") {
+        SettingsToggleRow(
+            title = "Prefer Offline Recognition",
+            description = "Ask the SpeechRecognizer to use on-device offline models when available",
+            checked = offlinePreferred,
+            onCheckedChange = viewModel::setVoiceOfflinePreferred
+        )
+    }
+}
+
+@Composable
+private fun LocalLlmCard(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val enabled by viewModel.localLlmEnabled.collectAsState()
+    val endpointValue by viewModel.localLlmEndpoint.collectAsState()
+    val modelValue by viewModel.localLlmModel.collectAsState()
+    var editEndpoint by remember(endpointValue) { mutableStateOf(endpointValue) }
+    var editModel by remember(modelValue) { mutableStateOf(modelValue) }
+
+    SettingsCard(title = "On-Premises LLM") {
+        SettingsToggleRow(
+            title = "Enable Local LLM",
+            description = "Route voice commands through a local Ollama-compatible LLM instead of HA Conversation API",
+            checked = enabled,
+            onCheckedChange = viewModel::setLocalLlmEnabled
+        )
+
+        if (enabled) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+            OutlinedTextField(
+                value = editEndpoint,
+                onValueChange = { editEndpoint = it },
+                label = { Text("Ollama Endpoint") },
+                placeholder = { Text("http://192.168.1.1:11434") },
+                supportingText = { Text("Any Ollama-compatible API (Ollama, LM Studio, Jan)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = editModel,
+                onValueChange = { editModel = it },
+                label = { Text("Model Name") },
+                placeholder = { Text("phi3") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = {
+                    viewModel.setLocalLlmEndpoint(editEndpoint.trim())
+                    viewModel.setLocalLlmModel(editModel.trim())
+                    Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save LLM Settings") }
+        }
     }
 }
 
