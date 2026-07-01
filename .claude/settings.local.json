@@ -51,7 +51,12 @@
       "Bash(git add *)",
       "PowerShell(Start-Process powershell -ArgumentList '-NoProfile','-Command','$listener = [System.Net.Sockets.TcpListener]::new\\([System.Net.IPAddress]::Loopback, 8123\\); $listener.Start\\(\\); Write-Host \"Relay listening on 127.0.0.1:8123\"; while\\($true\\) { $client = $listener.AcceptTcpClient\\(\\); $remote = [System.Net.Sockets.TcpClient]::new\\(\"192.168.1.112\", 8123\\); $cs = $client.GetStream\\(\\); $rs = $remote.GetStream\\(\\); $job1 = $cs.CopyToAsync\\($rs\\); $job2 = $rs.CopyToAsync\\($cs\\); [System.Threading.Tasks.Task]::WaitAny\\(@\\($job1,$job2\\)\\); $client.Close\\(\\); $remote.Close\\(\\) }' -WindowStyle Hidden)",
       "PowerShell(\\(Get-Item \"$env:TEMP\\\\kl8wall_connected.png\"\\).Length / 1KB)",
-      "PowerShell($ip = \\(adb -s R3CN30NL0XL shell ip route 2>&1 | Select-String \"wlan\" | ForEach-Object { \\($_ -split '\\\\s+'\\)[8] }\\); \"Phone WiFi IP: $ip\"; $port = adb -s R3CN30NL0XL shell \"ss -tlnp 2>/dev/null | grep 8080\" 2>&1; \"Server port check: $port\")"
+      "PowerShell($ip = \\(adb -s R3CN30NL0XL shell ip route 2>&1 | Select-String \"wlan\" | ForEach-Object { \\($_ -split '\\\\s+'\\)[8] }\\); \"Phone WiFi IP: $ip\"; $port = adb -s R3CN30NL0XL shell \"ss -tlnp 2>/dev/null | grep 8080\" 2>&1; \"Server port check: $port\")",
+      "Bash(.\\\\gradlew.bat assembleRelease)",
+      "Bash(git commit -m 'ci: auto-release on master push, fix CI branch from main to master *)",
+      "Bash(git push *)",
+      "Bash(git update-index *)",
+      "Bash(git commit -m 'ci: add chmod +x gradlew to all CI jobs, fix gradlew executable bit *)"
     ]
   }
 }
